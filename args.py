@@ -31,7 +31,7 @@ def get_args():
     parser.add_argument('--train-portion', type=float, default=0.5)
     parser.add_argument('--valid-portion', type=float, default=0.1)
 
-    parser.add_argument('--sort-data',type=int, default=1)
+    parser.add_argument('--sort-data',type=int, default=0)
 
     parser.add_argument('--normalize_x',type=int, default=0)
     parser.add_argument('--use-normalizer',type=int, default=0,

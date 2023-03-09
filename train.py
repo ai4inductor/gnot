@@ -182,10 +182,8 @@ def train(model, loss_func, metric_func,
 
 def train_batch(model, loss_func, data, optimizer, lr_scheduler, device, grad_clip=0.999):
     optimizer.zero_grad()
-    try:
-        g, u_p, g_u = data
-    except Exception:
-        print('err')
+
+    g, u_p, g_u = data
 
     g, g_u, u_p = g.to(device), g_u.to(device), u_p.to(device)
 

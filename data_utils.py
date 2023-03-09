@@ -378,7 +378,7 @@ class MIODataLoader(torch.utils.data.DataLoader):
         if shuffle:
             np.random.shuffle(self.batch_indices)
 
-        print('1')
+
 
 
 

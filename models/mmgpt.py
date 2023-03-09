@@ -235,7 +235,7 @@ class MIOECrossAttentionBlock(nn.Module):
         x_moe1 = (gate_score*x_moe1).sum(dim=-1,keepdim=False)
         x = x + self.ln3(x_moe1)
         x = x + self.resid_drop2(self.selfattn(self.ln4(x)))
-        x_moe2 = torch.stack([self.moe_mlp1[i](x) for i in range(self.n_experts)],dim=-1) # B, T1, C, m
+        x_moe2 = torch.stack([self.moe_mlp2[i](x) for i in range(self.n_experts)],dim=-1) # B, T1, C, m
         x_moe2 = (gate_score*x_moe2).sum(dim=-1,keepdim=False)
         x = x + self.ln5(x_moe2)
         return x
