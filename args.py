@@ -12,7 +12,7 @@ def get_args():
     parser = argparse.ArgumentParser(description='GNOT for operator learning')
     parser.add_argument('--dataset',type=str,
                         default='ns2d_4ball',
-                        choices = ['ns2d_4ball'])
+                        choices = ['ns2d_4ball',])
 
 
     parser.add_argument('--component',type=str,
@@ -23,8 +23,8 @@ def get_args():
     parser.add_argument('--seed', type=int, default=2022, metavar='Seed',
                         help='random seed (default: 1127802)')
 
-    parser.add_argument('--gpu', type=int, default=0, help='gpu id')
-    parser.add_argument('--use-tb', type=int, default=0, help='whether use tensorboard')
+    parser.add_argument('--gpu', type=int, default=7, help='gpu id')
+    parser.add_argument('--use-tb', type=int, default=1, help='whether use tensorboard')
     parser.add_argument('--comment',type=str,default="",help="comment for the experiment")
 
     #### new add options
@@ -48,8 +48,15 @@ def get_args():
                         )
     parser.add_argument('--grad-clip', type=str, default=1000.0
                         )
+    #### full batch training
     parser.add_argument('--batch-size', type=int, default=4, metavar='bsz',
                         help='input batch size for training (default: 8)')
+    #### scatter training
+    parser.add_argument('--scatter-batch-size',type=int,default=4096,
+                        help='input batch size for scatter training')
+    parser.add_argument('--merge-inputs',type=int, default=0,
+                        help='whether merge input functions for scatter training')
+
     parser.add_argument('--val-batch-size', type=int, default=8, metavar='bsz',
                         help='input batch size for validation (default: 4)')
 
@@ -68,8 +75,8 @@ def get_args():
                         choices=['rel2','rel1', 'l2', 'l1'])
     #### public model architecture parameters
 
-    parser.add_argument('--model-name', type=str, default='GNOT',
-                        choices=['CGPT', 'GNOT',])
+    parser.add_argument('--model-name', type=str, default='MLP',
+                        choices=['CGPT', 'GNOT', 'MLP'])
     parser.add_argument('--n-hidden',type=int, default=64)
     parser.add_argument('--n-layers',type=int, default=3)
 
@@ -100,6 +107,7 @@ def get_args():
     parser.add_argument('--n-experts',type=int, default=1)
     parser.add_argument('--branch-sizes',nargs="*",type=int, default=[2])
     parser.add_argument('--n-inner',type=int, default=4)
+
 
 
     # performer

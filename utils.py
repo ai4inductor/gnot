@@ -2,6 +2,7 @@
 #-*- coding:utf-8 _*-
 import os
 import torch
+import time
 import numpy as np
 import operator
 import matplotlib.pyplot as plt
@@ -11,6 +12,18 @@ import torch.special as ts
 
 from scipy import interpolate
 from functools import reduce
+
+
+
+def timing(func):
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        print(f"Execution time for {func.__name__}: {elapsed_time:.5f} seconds")
+        return result
+    return wrapper
 
 
 
@@ -79,6 +92,9 @@ class MultipleTensors():
 
     def __len__(self):
         return len(self.x)
+
+    def numel(self):
+        return np.sum([x_.numel() for x_ in self.x])
 
 
     def __getitem__(self, item):

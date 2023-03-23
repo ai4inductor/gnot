@@ -8,11 +8,11 @@ import dgl
 import matplotlib.pyplot as plt
 from dgl.dataloading import GraphDataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
-from operator_transformer.src_geo.utils import get_seed, get_num_params
-from operator_transformer.src_geo.args import get_args
-from operator_transformer.src_geo.data_utils import get_dataset, get_model, get_loss_func
-from operator_transformer.src_geo.train import validate_epoch
-from operator_transformer.src_geo.utils import plot_heatmap
+from gnot.utils import get_seed, get_num_params
+from gnot.args import get_args
+from gnot.data_utils import get_dataset, get_model, get_loss_func
+from gnot.train import validate_epoch
+from gnot.utils import plot_heatmap
 
 
 if __name__ == "__main__":

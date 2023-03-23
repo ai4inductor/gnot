@@ -14,6 +14,7 @@ from sklearn.preprocessing import QuantileTransformer
 
 from dgl.data import DGLDataset
 from dgl.nn.pytorch import SumPooling, AvgPooling
+from dgl.ops.segment import segment_reduce
 
 from scipy import interpolate
 from scipy.io import loadmat
@@ -27,6 +28,7 @@ from torch.nn.utils.rnn import pad_sequence
 from gnot.utils import TorchQuantileTransformer, UnitTransformer, PointWiseUnitTransformer, MultipleTensors
 from gnot.models.cgpt import CGPTNO
 from gnot.models.mmgpt import GNOT
+from gnot.models.MLP import MLPNO
 
 
 
@@ -37,15 +39,39 @@ def get_dataset(args):
         train_dataset = MIODataset(train_path, name=args.dataset, train=True, train_num=1000,sort_data=args.sort_data,
                                    normalize_y=args.use_normalizer,
                                    normalize_x=args.normalize_x)
-        test_dataset = MIODataset(test_path, name=args.dataset, train=False, test_num=200,sort_data=args.sort_data,
+        test_dataset = MIODataset(test_path, name=args.dataset, train=False, test_num=100,sort_data=args.sort_data,
                                   normalize_y=args.use_normalizer,
                                   normalize_x=args.normalize_x, y_normalizer=train_dataset.y_normalizer)
 
-        return train_dataset, test_dataset
+
 
     else:
         raise NotImplementedError
 
+    args.dataset_config = train_dataset.config
+
+    return train_dataset, test_dataset
+
+
+def get_scatter_dataset(args):
+    if args.dataset == "ns2d_4ball":
+        train_path = './data/ns2d_4ball_2200_train.pkl'
+        test_path = './data/ns2d_4ball_2200_test.pkl'
+        train_dataset = MIOScatterDataset(train_path, name=args.dataset, train=True, train_num=1000,merge_all_inputs=args.merge_inputs,
+                                   normalize_y=args.use_normalizer,
+                                   normalize_x=args.normalize_x)
+        test_dataset = MIOScatterDataset(test_path, name=args.dataset, train=False, test_num=100,merge_all_inputs=args.merge_inputs,
+                                  normalize_y=args.use_normalizer,
+                                  normalize_x=args.normalize_x, y_normalizer=train_dataset.y_normalizer)
+
+
+
+    else:
+        raise NotImplementedError
+
+    args.dataset_config = train_dataset.config
+
+    return train_dataset, test_dataset
 
 
 def get_model(args):
@@ -57,11 +83,12 @@ def get_model(args):
             u_p_dim = 12
         else:
             raise NotImplementedError
-        out_size = 3 if args.component == 'all' else 1
+        out_size = 3 if args.component in ['all','all-reduce'] else 1
     else:
         raise NotImplementedError
 
 
+    ### full batch training
     if args.model_name == "CGPT":
         trunk_size, branch_size, output_size = space_dim + u_p_dim, space_dim + g_u_dim, out_size
         return CGPTNO(trunk_size=trunk_size,branch_sizes=args.branch_sizes, output_size=output_size,n_layers=args.n_layers, n_hidden=args.n_hidden, n_head=args.n_head,attn_type=args.attn_type, ffn_dropout=args.ffn_dropout, attn_dropout=args.attn_dropout, mlp_layers=args.mlp_layers, act=args.act,horiz_fourier_dim=args.hfourier_dim)
@@ -71,6 +98,13 @@ def get_model(args):
     elif args.model_name == "GNOT":
         trunk_size,  output_size = space_dim + u_p_dim , out_size
         return GNOT(trunk_size=trunk_size,branch_sizes=args.branch_sizes, output_size=output_size,n_layers=args.n_layers, n_hidden=args.n_hidden, n_head=args.n_head,attn_type=args.attn_type, ffn_dropout=args.ffn_dropout, attn_dropout=args.attn_dropout, mlp_layers=args.mlp_layers, act=args.act,horiz_fourier_dim=args.hfourier_dim,space_dim=space_dim,n_experts=args.n_experts, n_inner=args.n_inner)
+
+
+    ### scatter training
+    elif args.model_name == 'MLP':
+        trunk_size, theta_size, output_size = args.dataset_config['input_dim'], args.dataset_config['theta_dim'], args.dataset_config['output_dim']
+        output_size = args.dataset_config['output_dim'] if args.component in ['all', 'all_reduce'] else 1
+        return MLPNO(input_size=trunk_size + theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers)
 
 
 
@@ -242,12 +276,13 @@ class MIODataset(DGLDataset):
             print('Load dataset finished {}'.format(time.time()-time0))
             #### initialize dataset
             self.train = train
-            if (train_num is None) or (train_num >= len(data_all)):
+            if ((train_num is None) and (test_num is None)):
                 self.train_num = int(0.8 * len(data_all))
                 self.test_num = len(data_all) - self.train_num
             else:
-                self.train_num = train_num
-                self.test_num = test_num
+                self.train_num = train_num if train_num is not None else len(data_all) - test_num
+                self.test_num = test_num if test_num is not None else len(data_all) - train_num
+                assert (self.train_num > 0) and (self.test_num > 0)  #
 
             if self.train:
                 self.data_list = data_all[:self.train_num]
@@ -280,7 +315,7 @@ class MIODataset(DGLDataset):
                 self.inputs_f.append(input_f)
                 self.num_inputs = len(input_f)
 
-            # print('processing {}'.format(i))
+            # print('processing {}'.format(i))d
 
         #### sort data if necessary
         if self.sort_data:
@@ -295,6 +330,7 @@ class MIODataset(DGLDataset):
         if self.normalize_x:
             self.__normalize_x()
 
+        self.__update_dataset_config()
 
         return
 
@@ -343,12 +379,198 @@ class MIODataset(DGLDataset):
         print('Input features are normalized using unit transformer')
 
 
+    def __update_dataset_config(self):
+        self.config = {
+            'input_dim': self.graphs[0].ndata['x'].shape[1],
+            'theta_dim': self.u_p.shape[1],
+            'output_dim': self.graphs[0].ndata['y'].shape[1],
+            'branch_sizes': [x.shape[1] for x in self.inputs_f[0]]
+
+        }
+        return
+
+
     def __len__(self):
         return self.data_len
 
 
     def __getitem__(self, idx):
         return self.graphs[idx], self.u_p[idx], self.inputs_f[idx]
+
+
+
+
+
+
+class MIOScatterDataset(DGLDataset):
+    def __init__(self, data_path, name=' ',train=True,test=False, train_num=None, test_num=None, use_cache=True, normalize_y=False, y_normalizer=None, normalize_x = False, merge_all_inputs=True):
+        self.data_path = data_path
+        self.cached_path = self.data_path[:-4] + '_' + 'train' + '_cached' +self.data_path[-4:] if train else  self.data_path[:-4] + '_' + 'test' + '_cached' +self.data_path[-4:]
+        self.use_cache = use_cache
+        self.normalize_y = normalize_y
+        self.normalize_x = normalize_x
+        self.y_normalizer = y_normalizer
+        self.num_inputs = 0
+        self.theta_dim = 0
+        self.branch_sizes = []
+        self.len_inputs = []
+        self.data_indexes = [0,]
+        self.merge_inputs = merge_all_inputs
+
+
+        ####  debug timing
+        time0 = time.time()
+        if not os.path.exists(self.cached_path):
+            data_all = pickle.load(open(self.data_path, "rb"))
+            print('Load dataset finished {}'.format(time.time()-time0))
+            #### initialize dataset
+            self.train = train
+            if ((train_num is None) and (test_num is None)):
+                self.train_num = int(0.8 * len(data_all))
+                self.test_num = len(data_all) - self.train_num
+            else:
+                self.train_num = train_num if train_num is not None else len(data_all) - test_num
+                self.test_num = test_num if test_num is not None else len(data_all) - train_num
+                assert (self.train_num >0 ) and (self.test_num > 0)   #
+
+            if self.train:
+                self.data_list = data_all[:self.train_num]
+            else:
+                self.data_list = data_all[-self.test_num:] if (self.test_num is not None) else data_all[train_num:]
+
+        super(MIOScatterDataset, self).__init__(name)   #### invoke super method after read data
+
+        # self.__initialize_tensor_dataset()
+
+
+    def process(self):
+
+
+        self.len_graphs = len(self.data_list)
+        self.graphs = []
+        self.inputs_f = []
+        self.u_p = []
+        for i in range(self.len_graphs):
+            x, y, u_p, input_f = self.data_list[i]
+            g = dgl.DGLGraph()
+            g.add_nodes(x.shape[0])
+            g.ndata['x'] = torch.from_numpy(x).float()
+            g.ndata['y'] = torch.from_numpy(y).float()
+            up = torch.from_numpy(u_p).float()
+            self.graphs.append(g)
+            self.u_p.append(up) # global input parameters
+            self.len_inputs.append(x.shape[0])
+            self.data_indexes.append(self.data_indexes[-1] + x.shape[0])
+            if input_f is not None:
+                input_f = MultipleTensors([torch.from_numpy(f).float() for f in input_f])
+                self.inputs_f.append(input_f)
+                self.num_inputs = len(input_f)
+
+            # print('processing {}'.format(i))d
+
+
+
+        self.data_indexes = torch.LongTensor(self.data_indexes)
+        self.len_inputs = torch.LongTensor(self.len_inputs)
+        self.u_p = torch.stack(self.u_p)
+
+
+        #### normalize_y
+        if self.normalize_y:
+            self.__normalize_y()
+        if self.normalize_x:
+            self.__normalize_x()
+
+
+        self.__scatter_dataset()
+
+        self.__update_dataset_config()
+
+
+        return
+
+    def __scatter_dataset(self):
+        #### check shape first
+        print('preparing scatter dataset')
+        f_sizes = [x.numel() for x in self.inputs_f]
+        if self.merge_inputs and len(set(f_sizes)) > 1 :
+            raise ValueError("Input functions have different lengths")
+
+
+        self.X_data = []
+        self.Y_data = []
+        self.theta = []
+        for i in range(self.len_graphs):
+            X_i, Y_i = self.graphs[i].ndata['x'], self.graphs[i].ndata['y']
+            theta_i = torch.tile(self.u_p[i].unsqueeze(0), [X_i.shape[0], 1])
+            if self.merge_inputs:
+                f_i = torch.cat([x_.view(-1) for x_ in self.inputs_f[i]], dim=0)
+                theta_i = torch.cat([theta_i, f_i], dim=0)
+
+            self.X_data.append(X_i)
+            self.Y_data.append(Y_i)
+            self.theta.append(theta_i)
+
+        self.theta_dim = self.theta[0].shape[1]
+
+        self.X_data, self.Y_data, self.theta = torch.cat(self.X_data, dim=0), torch.cat(self.Y_data, dim=0), torch.cat(self.theta, dim=0)
+        return
+
+
+
+    def __normalize_y(self):
+        if self.y_normalizer is None:
+            y_feats_all = torch.cat([g.ndata['y'] for g in self.graphs],dim=0)
+            # self.y_normalizer = QuantileTransformer(output_distribution='normal')
+            # self.y_normalizer = self.y_normalizer.fit(y_feats_all)
+            # self.y_normalizer = TorchQuantileTransformer(self.y_normalizer.output_distribution, self.y_normalizer.references_,self.y_normalizer.quantiles_)
+            self.y_normalizer = UnitTransformer(y_feats_all)
+            print(self.y_normalizer.mean, self.y_normalizer.std)
+
+
+        for g in self.graphs:
+            g.ndata['y'] = self.y_normalizer.transform(g.ndata["y"], inverse=False)  # a torch quantile transformer
+
+        # print('Target features are normalized using quantile transformer')
+        print('Target features are normalized using unit transformer')
+
+
+    def __normalize_x(self):
+        x_feats_all = torch.cat([g.ndata["x"] for g in self.graphs],dim=0)
+
+        self.x_normalizer = UnitTransformer(x_feats_all)
+
+        # for g in self.graphs:
+        #     g.ndata['x'] = self.x_normalizer.transform(g.ndata['x'], inverse=False)
+
+        # if self.graphs_u[0].number_of_nodes() > 0:
+        #     for g in self.graphs_u:
+        #         g.ndata['x'] = self.x_normalizer.transform(g.ndata['x'], inverse=False)
+
+        self.up_normalizer = UnitTransformer(self.u_p)
+        self.u_p = self.up_normalizer.transform(self.u_p, inverse=False)
+
+
+        print('Input features are normalized using unit transformer')
+
+    #### summary at least these information:
+    def __update_dataset_config(self):
+        self.config = {'input_dim': self.X_data.shape[1],
+                       'theta_dim': self.theta_dim,
+                       'output_dim': self.Y_data.shape[1],
+                       'branch_sizes': [x.shape[1] for x in self.inputs_f[0]]
+                       }
+        return
+
+
+    def __len__(self):
+        return self.X_data.shape[0]
+
+
+    def __getitem__(self, idx):
+        return self.X_data[idx], self.theta[idx], self.Y_data[idx]
+
+
 
 
 
@@ -408,6 +630,69 @@ class MIODataLoader(torch.utils.data.DataLoader):
 
 
 
+'''
+    A simple warped class for Lp loss in scatter training, supports L1, L2
+'''
+class ScatterLpLoss(_WeightedLoss):
+    def __init__(self, d=2, p=2, component=0, regularizer=False, normalizer=None):
+        super(ScatterLpLoss, self).__init__()
+
+        self.d = d
+        self.p = p
+        self.component = component if component in ['all' , 'all-reduce'] else int(component)
+
+        self.regularizer = regularizer
+        self.normalizer = normalizer
+        self.avg_pool = AvgPooling()
+
+    def _lp_losses(self, pred, target, offsets=None):
+        if offsets is None:
+            if self.component == 'all':
+                losses =  ((pred - target).abs() ** self.p)
+                loss = losses.mean()  ** (1 / self.p)
+                metrics = (losses.mean(dim=0) ** (1 /self.p)).clone().detach().cpu().numpy()
+
+            else:
+                assert self.component <= target.shape[1]
+                losses = (pred - target[:, self.component: self.component + 1]).abs() ** self.p
+                loss = losses.mean() ** (1 / self.p)
+                metrics = (losses.mean() ** (1 / self.p)).clone().detach().cpu().numpy()
+        else:
+            if self.component == 'all':
+
+                losses = segment_reduce(offsets, ((pred - target).abs() ** self.p),'mean') ** (1/ self.p)
+                loss = losses.mean()
+                metrics = losses.mean(dim=0).clone().detach().cpu().numpy()
+
+            else:
+                assert self.component <= target.shape[1]
+                losses = segment_reduce(offsets,  (pred - target[:, self.component:self.component +1]).abs() ** self.p, 'mean') ** (1 / self.p)
+                loss = losses.mean()
+                metrics = losses.mean().clone().detach().cpu().numpy()
+
+
+        return loss, metrics
+
+
+
+    def forward(self, pred, target, offsets=None):
+
+        #### only for computing metrics
+
+        loss, metrics = self._lp_losses(pred, target, offsets=offsets)
+
+        if self.normalizer is not None:
+            ori_pred, ori_target = self.normalizer.transform(pred, component=self.component,
+                                                             inverse=True), self.normalizer.transform(target,
+                                                                                                      inverse=True)
+            _, metrics = self._lp_losses(ori_pred, ori_target, offsets=offsets)
+
+        if self.regularizer:
+            raise NotImplementedError
+        else:
+            reg = torch.zeros_like(loss)
+
+        return loss, reg, metrics
 
 
 class WeightedLpRelLoss(_WeightedLoss):
@@ -416,7 +701,7 @@ class WeightedLpRelLoss(_WeightedLoss):
 
         self.d = d
         self.p = p
-        self.component = component if component == 'all' or 'all-reduce' else int(component)
+        self.component = component if component in ['all' , 'all-reduce'] else int(component)
         self.regularizer = regularizer
         self.normalizer = normalizer
         self.sum_pool = SumPooling()
@@ -469,7 +754,8 @@ class WeightedLpLoss(_WeightedLoss):
 
         self.d = d
         self.p = p
-        self.component = component if component == 'all' else int(component)
+        self.component = component if component in ['all' , 'all-reduce'] else int(component)
+
         self.regularizer = regularizer
         self.normalizer = normalizer
         self.avg_pool = AvgPooling()

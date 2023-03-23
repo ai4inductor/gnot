@@ -11,7 +11,7 @@ from torch.nn import GELU, ReLU, Tanh, Sigmoid
 from torch.nn.utils.rnn import pad_sequence
 
 
-from operator_transformer.src_geo.models.mlp import MLP
+from gnot.models.MLP import MLP
 
 
 
