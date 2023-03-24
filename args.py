@@ -75,7 +75,7 @@ def get_args():
                         choices=['rel2','rel1', 'l2', 'l1'])
     #### public model architecture parameters
 
-    parser.add_argument('--model-name', type=str, default='MLP',
+    parser.add_argument('--model-name', type=str, default='MLP_s',
                         choices=['CGPT', 'GNOT', 'MLP','MLP_s'])
     parser.add_argument('--n-hidden',type=int, default=128)
     parser.add_argument('--n-layers',type=int, default=5)

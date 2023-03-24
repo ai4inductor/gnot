@@ -703,6 +703,83 @@ class ScatterLpLoss(_WeightedLoss):
         return loss, reg, metrics
 
 
+
+class ScatterLpRelLoss(_WeightedLoss):
+    def __init__(self, d=2, p=2, component=0, regularizer=False, normalizer=None):
+        super(ScatterLpRelLoss, self).__init__()
+
+        self.d = d
+        self.p = p
+        self.component = component if component in ['all' , 'all-reduce'] else int(component)
+
+        self.regularizer = regularizer
+        self.normalizer = normalizer
+        self.avg_pool = AvgPooling()
+
+    def _lp_losses(self, pred, target, offsets=None):
+        if offsets is None:     ## single batch case
+            if self.component in ['all','all-reduce']:
+                err =  ((pred - target).abs() ** self.p)
+                losses = (err.sum(dim=0)/ (target ** self.p).sum(dim=0)) ** (1 / self.p)
+                loss = losses.mean()
+                if self.component == 'all':
+                    metrics = losses.clone().detach().cpu().numpy()
+                else:
+                    metrics = loss.clone().detach().cpu().numpy()
+
+            else:
+                assert self.component <= target.shape[1]
+                err = (pred - target[:, self.component: self.component + 1]).abs() ** self.p
+                losses = (err.sum(dim=0) / (target ** self.p).sum(dim=0)) ** (1 / self.p)
+                loss = losses.mean()
+                metrics = loss.clone().detach().cpu().numpy()
+        else:
+            if self.component in ['all', 'all-reduce']:
+                err_pool = segment_reduce(offsets, ((pred - target).abs() ** self.p),'sum') ** (1/ self.p)
+                target_pool = segment_reduce(offsets, (target.abs()**self.p),'sum')**(1/self.p)
+                losses = (err_pool / target_pool)**(1/self.p)
+                loss = losses.mean()
+                if self.component == 'all':
+                    metrics = losses.mean(dim=0).clone().detach().cpu().numpy()
+                else:
+                    metrics = losses.mean().clone().detach().cpu().numpy()
+
+
+            else:
+                assert self.component <= target.shape[1]
+                err_pool = segment_reduce(offsets, ((pred - target).abs() ** self.p), 'sum') ** (1 / self.p)
+                target_pool = segment_reduce(offsets, (target.abs() ** self.p), 'sum') ** (1 / self.p)
+                losses = (err_pool / target_pool) ** (1 / self.p)
+                loss = losses.mean()
+                metrics = losses.mean().clone().detach().cpu().numpy()
+
+
+        return loss, metrics
+
+
+
+    def forward(self, pred, target, offsets=None):
+
+        #### only for computing metrics
+
+        loss, metrics = self._lp_losses(pred, target, offsets=offsets)
+
+        if self.normalizer is not None:
+            ori_pred, ori_target = self.normalizer.transform(pred, component=self.component,
+                                                             inverse=True), self.normalizer.transform(target,
+                                                                                                      inverse=True)
+            _, metrics = self._lp_losses(ori_pred, ori_target, offsets=offsets)
+
+        if self.regularizer:
+            raise NotImplementedError
+        else:
+            reg = torch.zeros_like(loss)
+
+        return loss, reg, metrics
+
+
+
+
 class WeightedLpRelLoss(_WeightedLoss):
     def __init__(self, d=2, p=2, component=0,regularizer=False, normalizer=None):
         super(WeightedLpRelLoss, self).__init__()

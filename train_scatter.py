@@ -34,7 +34,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 
 from gnot.args import get_args
-from gnot.data_utils import get_scatter_dataset,get_model, ScatterLpLoss
+from gnot.data_utils import get_scatter_dataset,get_model, ScatterLpLoss, ScatterLpRelLoss
 from gnot.utils import get_seed, get_num_params, timing
 from gnot.models.optimizer import Adam, AdamW
 
@@ -84,8 +84,10 @@ def train(args,
         model.train()
         torch.cuda.empty_cache()
 
-        train_idxs = torch.randperm(len(train_dataset)).to(device).split(args.scatter_batch_size)
+        # train_idxs = torch.randperm(len(train_dataset)).to(device).split(args.scatter_batch_size)
+        train_idxs = torch.arange(len(train_dataset)).to(device).split(args.scatter_batch_size)
 
+        # time0 = time.time()
         for idx in train_idxs:
 
             batch = (train_dataset.X_data[idx], train_dataset.theta[idx], train_dataset.Y_data[idx])
@@ -113,6 +115,7 @@ def train(args,
             if writer is not None:
                 for j in range(len(_loss_mean)):
                     writer.add_scalar("train_loss_{}".format(j), _loss_mean[j], it)  #### loss 0 seems to be the sum of all loss
+        # print('dsdsd {}'.format(time.time()-time0))
         loss_train.append(_loss_mean)
         loss_epoch = []
 
@@ -207,32 +210,31 @@ def train_batch(model, loss_func, data, optimizer, lr_scheduler, device, grad_cl
 def validate_epoch(model, metric_func, valid_dataset, batchsize, device):
     model.eval()
     y_data, y_pred = [],  []
+    metric_val = []
 
     with torch.no_grad():
-        test_idxs = torch.arange(len(valid_dataset)).split(batchsize)
-        # for _, data in enumerate(valid_loader):
-        for idx in test_idxs:
+        # test_idxs = torch.arange(len(valid_dataset)).split(batchsize)
+        # for idx in test_idxs:
+
+        for id in range(len(valid_dataset.data_indexes) - 1):
+            idx = torch.arange(valid_dataset.data_indexes[id], valid_dataset.data_indexes[id + 1]).to(device)
 
             x, theta, y = test_dataset.X_data[idx].to(device), test_dataset.theta[idx].to(device), test_dataset.Y_data[idx].to(device)
 
             out = model(x, theta)
 
-            out, y = out.cpu(), y.cpu()  # 12 GB memory can store 5e8 points, so do not need to transfer it to cpu
-            y_data.append(y)
-            y_pred.append(out)
-            # _, _, metric = metric_func(g, y_pred, y)
+            # y_data.append(y), y_pred.append(out)
+            _, _, metric = metric_func(out, y, offsets=None)
 
-            # metric_val.append(metric)
+            metric_val.append(metric)
 
-        y_data, y_pred = torch.cat(y_data, dim=0), torch.cat(y_pred, dim=0)
-        offsets =  valid_dataset.len_inputs.to(y_data.device)
+        ### test case by case
+        # y_data, y_pred = torch.cat(y_data, dim=0), torch.cat(y_pred, dim=0)
+        # offsets =  valid_dataset.len_inputs.to(y_data.device)
         ### GPU
-        _, _, metric_val = loss_func(y_pred, y_data, offsets)
-
-
-
-
-    return dict(metric=metric_val)
+        # _, _, metric_val = loss_func(y_pred, y_data, offsets)
+    # return dict(metric=metric_val)
+    return dict(metric=np.mean(metric_val, axis=0))
 
 
 if __name__ == "__main__":
@@ -261,10 +263,10 @@ if __name__ == "__main__":
 
     if args.loss_name in ['rel1' , 'l1']:
         loss_func = ScatterLpLoss(p=1, component=args.component, normalizer=args.normalizer)
-        metric_func = ScatterLpLoss(p=1, component=args.component, normalizer=args.normalizer)
+        metric_func = ScatterLpRelLoss(p=1, component=args.component, normalizer=args.normalizer)
     elif args.loss_name in ["rel2" , 'l2']:
         loss_func = ScatterLpLoss(p=2, component=args.component, normalizer=args.normalizer)
-        metric_func = ScatterLpLoss(p=2, component=args.component, normalizer=args.normalizer)
+        metric_func = ScatterLpRelLoss(p=2, component=args.component, normalizer=args.normalizer)
     else:
         raise NotImplementedError
 
