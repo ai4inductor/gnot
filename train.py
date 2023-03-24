@@ -49,7 +49,7 @@ EPOCH_SCHEDULERS = ['ReduceLROnPlateau', 'StepLR', 'MultiplicativeLR',
 
 
 
-def train(model,
+def train(args, model,
           loss_func,
           metric_func,
           train_loader,
@@ -190,7 +190,7 @@ def train(model,
 
 
 
-
+# @timing
 def train_batch(model, loss_func, data, optimizer, lr_scheduler, device, grad_clip=0.999):
     optimizer.zero_grad()
 
@@ -332,14 +332,14 @@ if __name__ == "__main__":
 
     time_start = time.time()
 
-    result = train(model, loss_func, metric_func,
+    result = train(args, model, loss_func, metric_func,
                        train_loader, test_loader,
                        optimizer, scheduler,
                        epochs=epochs,
                        grad_clip=args.grad_clip,
                        patience=None,
                        model_name=model_path,
-                       model_save_path='./../models/checkpoints/',
+                       model_save_path='./../data/checkpoints/',
                        result_name=result_path,
                        writer=writer,
                        device=device)
@@ -348,7 +348,7 @@ if __name__ == "__main__":
 
     # result['args'], result['config'] = args, config
     checkpoint = {'args':args, 'model':model.state_dict(),'optimizer':optimizer.state_dict()}
-    torch.save(checkpoint, os.path.join('./../models/checkpoints/{}'.format(model_path)))
+    torch.save(checkpoint, os.path.join('./../data/checkpoints/{}'.format(model_path)))
     # pickle.dump(checkpoint, open(os.path.join('./../models/checkpoints/{}'.format(model_path), result_path),'wb'))
     # model.load_state_dict(torch.load(os.path.join('./../models/checkpoints/', model_path)))
     model.eval()

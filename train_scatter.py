@@ -42,7 +42,8 @@ EPOCH_SCHEDULERS = ['ReduceLROnPlateau', 'StepLR', 'MultiplicativeLR',
                     'MultiStepLR', 'ExponentialLR', 'LambdaLR']
 
 
-def train(model,
+def train(args,
+          model,
           loss_func,
           metric_func,
           train_dataset,
@@ -82,9 +83,14 @@ def train(model,
     for epoch in range(start_epoch, end_epoch):
         model.train()
         torch.cuda.empty_cache()
-        for batch in train_loader:
 
+        train_idxs = torch.randperm(len(train_dataset)).to(device).split(args.scatter_batch_size)
+
+        for idx in train_idxs:
+
+            batch = (train_dataset.X_data[idx], train_dataset.theta[idx], train_dataset.Y_data[idx])
             loss = train_batch(model, loss_func, batch, optimizer, lr_scheduler, device, grad_clip=grad_clip)
+
 
             loss = np.array(loss)
             loss_epoch.append(loss)
@@ -106,12 +112,11 @@ def train(model,
 
             if writer is not None:
                 for j in range(len(_loss_mean)):
-                    writer.add_scalar("train_loss_{}".format(j), _loss_mean[j],it)  #### loss 0 seems to be the sum of all loss
-
+                    writer.add_scalar("train_loss_{}".format(j), _loss_mean[j], it)  #### loss 0 seems to be the sum of all loss
         loss_train.append(_loss_mean)
         loss_epoch = []
 
-        val_result = validate_epoch(model, metric_func, test_dataset, test_loader, device)
+        val_result = validate_epoch(model, metric_func, test_dataset, args.scatter_batch_size * 4, device)
 
         loss_val.append(val_result["metric"])
         val_metric = val_result["metric"].sum()
@@ -178,7 +183,7 @@ def train(model,
         # pickle.dump(result, open(os.path.join(model_save_path, result_name),'wb'))
     return result
 
-
+# @timing
 def train_batch(model, loss_func, data, optimizer, lr_scheduler, device, grad_clip=0.999):
     optimizer.zero_grad()
 
@@ -199,15 +204,16 @@ def train_batch(model, loss_func, data, optimizer, lr_scheduler, device, grad_cl
     return loss.item(), reg.item()
 
 @timing
-def validate_epoch(model, metric_func, valid_dataset, valid_loader, device):
+def validate_epoch(model, metric_func, valid_dataset, batchsize, device):
     model.eval()
     y_data, y_pred = [],  []
-    with torch.no_grad():
-        time0 = time.time()
-        for _, data in enumerate(valid_loader):
 
-            x, theta, y = data
-            x, theta, y = x.to(device), theta.to(device), y.to(device)
+    with torch.no_grad():
+        test_idxs = torch.arange(len(valid_dataset)).split(batchsize)
+        # for _, data in enumerate(valid_loader):
+        for idx in test_idxs:
+
+            x, theta, y = test_dataset.X_data[idx].to(device), test_dataset.theta[idx].to(device), test_dataset.Y_data[idx].to(device)
 
             out = model(x, theta)
 
@@ -240,9 +246,9 @@ if __name__ == "__main__":
     get_seed(args.seed, printout=False)
 
     train_dataset, test_dataset = get_scatter_dataset(args)
-
-    train_loader = torch.utils.data.DataLoader(train_dataset,batch_size=args.scatter_batch_size , shuffle=True, drop_last=False)
-    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.scatter_batch_size * 5, shuffle=False, drop_last=False)
+    #### DO not use dataloader for long tensordataset
+    train_loader = torch.utils.data.DataLoader(train_dataset,batch_size=args.scatter_batch_size , shuffle=True, drop_last=False,num_workers=8,pin_memory=True)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=args.scatter_batch_size * 5, shuffle=False, drop_last=False,num_workers=8,pin_memory=True)
 
 
 
@@ -317,14 +323,14 @@ if __name__ == "__main__":
 
     time_start = time.time()
 
-    result = train(model, loss_func, metric_func, train_dataset, test_dataset,
+    result = train(args, model, loss_func, metric_func, train_dataset, test_dataset,
                    train_loader, test_loader,
                    optimizer, scheduler,
                    epochs=epochs,
                    grad_clip=args.grad_clip,
                    patience=None,
                    model_name=model_path,
-                   model_save_path='./../models/checkpoints/',
+                   model_save_path='./../data/checkpoints/',
                    result_name=result_path,
                    writer=writer,
                    device=device)
@@ -333,7 +339,7 @@ if __name__ == "__main__":
 
     # result['args'], result['config'] = args, config
     checkpoint = {'args': args, 'model': model.state_dict(), 'optimizer': optimizer.state_dict()}
-    torch.save(checkpoint, os.path.join('./../models/checkpoints/{}'.format(model_path)))
+    torch.save(checkpoint, os.path.join('./../data/checkpoints/{}'.format(model_path)))
     # pickle.dump(checkpoint, open(os.path.join('./../models/checkpoints/{}'.format(model_path), result_path),'wb'))
     # model.load_state_dict(torch.load(os.path.join('./../models/checkpoints/', model_path)))
     model.eval()

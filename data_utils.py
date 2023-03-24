@@ -28,14 +28,14 @@ from torch.nn.utils.rnn import pad_sequence
 from gnot.utils import TorchQuantileTransformer, UnitTransformer, PointWiseUnitTransformer, MultipleTensors
 from gnot.models.cgpt import CGPTNO
 from gnot.models.mmgpt import GNOT
-from gnot.models.MLP import MLPNO
+from gnot.models.MLP import MLPNO, MLPNOScatter
 
 
 
 def get_dataset(args):
     if args.dataset == "ns2d_4ball":
-        train_path = './data/ns2d_4ball_2200_train.pkl'
-        test_path = './data/ns2d_4ball_2200_test.pkl'
+        train_path = './data/ns2d_nomask_4ball_2200_train.pkl'
+        test_path = './data/ns2d_nomask_4ball_2200_test.pkl'
         train_dataset = MIODataset(train_path, name=args.dataset, train=True, train_num=1000,sort_data=args.sort_data,
                                    normalize_y=args.use_normalizer,
                                    normalize_x=args.normalize_x)
@@ -55,8 +55,8 @@ def get_dataset(args):
 
 def get_scatter_dataset(args):
     if args.dataset == "ns2d_4ball":
-        train_path = './data/ns2d_4ball_2200_train.pkl'
-        test_path = './data/ns2d_4ball_2200_test.pkl'
+        train_path = './data/ns2d_nomask_4ball_2200_train.pkl'
+        test_path = './data/ns2d_nomask_4ball_2200_test.pkl'
         train_dataset = MIOScatterDataset(train_path, name=args.dataset, train=True, train_num=1000,merge_all_inputs=args.merge_inputs,
                                    normalize_y=args.use_normalizer,
                                    normalize_x=args.normalize_x)
@@ -100,11 +100,18 @@ def get_model(args):
         return GNOT(trunk_size=trunk_size,branch_sizes=args.branch_sizes, output_size=output_size,n_layers=args.n_layers, n_hidden=args.n_hidden, n_head=args.n_head,attn_type=args.attn_type, ffn_dropout=args.ffn_dropout, attn_dropout=args.attn_dropout, mlp_layers=args.mlp_layers, act=args.act,horiz_fourier_dim=args.hfourier_dim,space_dim=space_dim,n_experts=args.n_experts, n_inner=args.n_inner)
 
 
-    ### scatter training
     elif args.model_name == 'MLP':
         trunk_size, theta_size, output_size = args.dataset_config['input_dim'], args.dataset_config['theta_dim'], args.dataset_config['output_dim']
         output_size = args.dataset_config['output_dim'] if args.component in ['all', 'all_reduce'] else 1
         return MLPNO(input_size=trunk_size + theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers)
+
+
+    ### scatter training
+    elif args.model_name == 'MLP_s':
+        trunk_size, theta_size, output_size = args.dataset_config['input_dim'], args.dataset_config['theta_dim'], args.dataset_config['output_dim']
+        output_size = args.dataset_config['output_dim'] if args.component in ['all', 'all_reduce'] else 1
+        return MLPNOScatter(input_size=trunk_size + theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers)
+
 
 
 
@@ -514,6 +521,7 @@ class MIOScatterDataset(DGLDataset):
         self.theta_dim = self.theta[0].shape[1]
 
         self.X_data, self.Y_data, self.theta = torch.cat(self.X_data, dim=0), torch.cat(self.Y_data, dim=0), torch.cat(self.theta, dim=0)
+        self.X_data, self.Y_data, self.theta = self.X_data.contiguous(), self.Y_data.contiguous(), self.theta.contiguous()
         return
 
 

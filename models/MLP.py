@@ -44,6 +44,30 @@ class MLP(nn.Module):
 
 
 
+class MLPNOScatter(nn.Module):
+    def __init__(self, input_size=2, output_size=3, n_layers=2, n_hidden=64):
+        super(MLPNOScatter, self).__init__()
+        self.input_size = input_size
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+
+        self.mlp = MLP(input_size, n_hidden, output_size, n_layers=n_layers)
+        self.__name__ = 'MLP_s'
+
+
+    def forward(self, x, theta):
+
+        feats = torch.cat([x, theta],dim=1)
+
+        feats = self.mlp(feats)
+
+        return feats
+
+
+
+
+
 class MLPNO(nn.Module):
     def __init__(self, input_size=2, output_size=3, n_layers=2, n_hidden=64):
         super(MLPNO, self).__init__()
@@ -56,14 +80,12 @@ class MLPNO(nn.Module):
         self.__name__ = 'MLP'
 
 
-    def forward(self, x, theta):
-
-        feats = torch.cat([x, theta],dim=1)
-
+    def forward(self, g, u_p, g_u):
+        u_p_nodes = dgl.broadcast_nodes(g, u_p)
+        feats = torch.cat([g.ndata['x'], u_p_nodes], dim=1)
         feats = self.mlp(feats)
 
         return feats
-
 
 
 

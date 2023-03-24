@@ -24,7 +24,7 @@ def get_args():
                         help='random seed (default: 1127802)')
 
     parser.add_argument('--gpu', type=int, default=7, help='gpu id')
-    parser.add_argument('--use-tb', type=int, default=1, help='whether use tensorboard')
+    parser.add_argument('--use-tb', type=int, default=0, help='whether use tensorboard')
     parser.add_argument('--comment',type=str,default="",help="comment for the experiment")
 
     #### new add options
@@ -52,7 +52,7 @@ def get_args():
     parser.add_argument('--batch-size', type=int, default=4, metavar='bsz',
                         help='input batch size for training (default: 8)')
     #### scatter training
-    parser.add_argument('--scatter-batch-size',type=int,default=4096,
+    parser.add_argument('--scatter-batch-size',type=int,default=40000,
                         help='input batch size for scatter training')
     parser.add_argument('--merge-inputs',type=int, default=0,
                         help='whether merge input functions for scatter training')
@@ -76,9 +76,9 @@ def get_args():
     #### public model architecture parameters
 
     parser.add_argument('--model-name', type=str, default='MLP',
-                        choices=['CGPT', 'GNOT', 'MLP'])
-    parser.add_argument('--n-hidden',type=int, default=64)
-    parser.add_argument('--n-layers',type=int, default=3)
+                        choices=['CGPT', 'GNOT', 'MLP','MLP_s'])
+    parser.add_argument('--n-hidden',type=int, default=128)
+    parser.add_argument('--n-layers',type=int, default=5)
 
     #### MLP/DeepONet parameters
     #### GNN parameters
