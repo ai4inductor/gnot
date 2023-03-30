@@ -101,6 +101,10 @@ class MultipleTensors():
         return self.x[item]
 
 
+
+
+
+
 # whether need to transpose
 def plot_heatmap(
     x, y, z, path=None, vmin=None, vmax=None,cmap=None,
@@ -433,7 +437,7 @@ class UnitTransformer():
         return self
 
     def transform(self, X, inverse=True,component='all'):
-        if component == 'all' or 'all-reduce':
+        if component in ['all' , 'all-reduce']:
             if inverse:
                 orig_shape = X.shape
                 return (X*(self.std - 1e-8) + self.mean).view(orig_shape)
@@ -447,7 +451,30 @@ class UnitTransformer():
                 return (X - self.mean[:,component])/self.std[:,component]
 
 
+class MinMaxTransformer():
+    def __init__(self, X):
+        self.min = X.min(dim=0, keepdim=True)[0]
+        self.max = X.max(dim=0, keepdim=True)[0]
 
+
+    def to(self, device):
+        self.min = self.min.to(device)
+        self.max = self.max.to(device)
+        return self
+
+    def transform(self, X, inverse=True,component='all'):
+        if component in ['all', 'all-reduce']:
+            if inverse:
+                orig_shape = X.shape
+                return (X*(self.max - self.min) + self.min).view(orig_shape)
+            else:
+                return (X-self.min)/(self.max -self.min)
+        else:
+            if inverse:
+                orig_shape = X.shape
+                return (X*(self.max[:,component] - self.min[:,component])+ self.min[:,component]).view(orig_shape)
+            else:
+                return (X - self.min[:,component])/(self.max[:,component] - self.min[:, component])
 
 
 '''
@@ -466,7 +493,7 @@ class PointWiseUnitTransformer():
         return self
 
     def transform(self, X, inverse=True,component='all'):
-        if component == 'all' or 'all-reduce':
+        if component in ['all' , 'all-reduce']:
             if inverse:
                 orig_shape = X.shape
                 X = X.view(-1, self.mean.shape[0],self.mean.shape[1])   ### align shape for flat tensor

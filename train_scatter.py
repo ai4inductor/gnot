@@ -19,6 +19,7 @@ sys.path.append('..')
 import yaml
 import pickle
 import tqdm
+import re
 import time
 import numpy as np
 import matplotlib.pyplot as plt
@@ -54,7 +55,7 @@ def train(args,
           lr_scheduler,
           epochs=10,
           writer=None,
-          device="cuda",
+          device=torch.device("cuda:0"),
           patience=10,
           grad_clip=0.999,
           start_epoch: int = 0,
@@ -71,7 +72,7 @@ def train(args,
 
     if patience is None or patience == 0:
         patience = epochs
-    result = None
+    result = []
     start_epoch = start_epoch
     end_epoch = start_epoch + epochs
     best_val_metric = np.inf
@@ -84,8 +85,8 @@ def train(args,
         model.train()
         torch.cuda.empty_cache()
 
-        # train_idxs = torch.randperm(len(train_dataset)).to(device).split(args.scatter_batch_size)
-        train_idxs = torch.arange(len(train_dataset)).to(device).split(args.scatter_batch_size)
+        train_idxs = torch.randperm(len(train_dataset)).split(args.scatter_batch_size)
+        # train_idxs = torch.arange(len(train_dataset)).to(device).split(args.scatter_batch_size)
 
         # time0 = time.time()
         for idx in train_idxs:
@@ -121,6 +122,7 @@ def train(args,
 
         val_result = validate_epoch(model, metric_func, test_dataset, args.scatter_batch_size * 4, device)
 
+        result.append(val_result['data_vis'])
         loss_val.append(val_result["metric"])
         val_metric = val_result["metric"].sum()
 
@@ -174,16 +176,18 @@ def train(args,
         desc_ep += log
         print(desc_ep)
 
-        result = dict(
-            best_val_epoch=best_val_epoch,
-            best_val_metric=best_val_metric,
-            loss_train=np.asarray(loss_train),
-            loss_val=np.asarray(loss_val),
-            lr_history=np.asarray(lr_history),
-            # best_model=best_model_state_dict,
-            optimizer_state=optimizer.state_dict()
-        )
-        # pickle.dump(result, open(os.path.join(model_save_path, result_name),'wb'))
+        # result = dict(
+        #     best_val_epoch=best_val_epoch,
+        #     best_val_metric=best_val_metric,
+        #     loss_train=np.asarray(loss_train),
+        #     loss_val=np.asarray(loss_val),
+        #     lr_history=np.asarray(lr_history),
+        #     # best_model=best_model_state_dict,
+        #     optimizer_state=optimizer.state_dict()
+        # )
+        pickle.dump(result, open('./data/data_vis_test.pkl','wb'))
+
+
     return result
 
 # @timing
@@ -206,18 +210,19 @@ def train_batch(model, loss_func, data, optimizer, lr_scheduler, device, grad_cl
 
     return loss.item(), reg.item()
 
-@timing
+# @timing
 def validate_epoch(model, metric_func, valid_dataset, batchsize, device):
     model.eval()
     y_data, y_pred = [],  []
     metric_val = []
 
+    data_vis = None
     with torch.no_grad():
         # test_idxs = torch.arange(len(valid_dataset)).split(batchsize)
         # for idx in test_idxs:
 
         for id in range(len(valid_dataset.data_indexes) - 1):
-            idx = torch.arange(valid_dataset.data_indexes[id], valid_dataset.data_indexes[id + 1]).to(device)
+            idx = torch.arange(valid_dataset.data_indexes[id], valid_dataset.data_indexes[id + 1])
 
             x, theta, y = test_dataset.X_data[idx].to(device), test_dataset.theta[idx].to(device), test_dataset.Y_data[idx].to(device)
 
@@ -228,13 +233,20 @@ def validate_epoch(model, metric_func, valid_dataset, batchsize, device):
 
             metric_val.append(metric)
 
+            #### save data
+            if id == 10:
+                data_vis = [x.squeeze().cpu().numpy(), out.squeeze().cpu().numpy(), y.squeeze().cpu().numpy()]
+
+
+
         ### test case by case
         # y_data, y_pred = torch.cat(y_data, dim=0), torch.cat(y_pred, dim=0)
         # offsets =  valid_dataset.len_inputs.to(y_data.device)
         ### GPU
         # _, _, metric_val = loss_func(y_pred, y_data, offsets)
     # return dict(metric=metric_val)
-    return dict(metric=np.mean(metric_val, axis=0))
+
+    return dict(metric=np.mean(metric_val, axis=0), data_vis=data_vis)
 
 
 if __name__ == "__main__":
@@ -254,7 +266,7 @@ if __name__ == "__main__":
 
 
 
-
+    args.space_dim = int(re.search(r'\d', args.dataset).group())
     args.normalizer = train_dataset.y_normalizer.to(device) if train_dataset.y_normalizer is not None else None
 
     #### set random seeds
@@ -278,7 +290,7 @@ if __name__ == "__main__":
         '_%m%d_%H_%M_%S')
     model_path, result_path = path_prefix + '.pt', path_prefix + '.pkl'
 
-    print(f"Saving model and result in ./../models/checkpoints/{model_path}\n")
+    print(f"Saving model and result in ./data/checkpoints/{model_path}\n")
 
     if args.use_tb:
         writer_path = './data/logs/' + path_prefix
@@ -332,7 +344,7 @@ if __name__ == "__main__":
                    grad_clip=args.grad_clip,
                    patience=None,
                    model_name=model_path,
-                   model_save_path='./../data/checkpoints/',
+                   model_save_path='./data/checkpoints/',
                    result_name=result_path,
                    writer=writer,
                    device=device)
@@ -341,11 +353,11 @@ if __name__ == "__main__":
 
     # result['args'], result['config'] = args, config
     checkpoint = {'args': args, 'model': model.state_dict(), 'optimizer': optimizer.state_dict()}
-    torch.save(checkpoint, os.path.join('./../data/checkpoints/{}'.format(model_path)))
+    torch.save(checkpoint, os.path.join('./data/checkpoints/{}'.format(model_path)))
     # pickle.dump(checkpoint, open(os.path.join('./../models/checkpoints/{}'.format(model_path), result_path),'wb'))
     # model.load_state_dict(torch.load(os.path.join('./../models/checkpoints/', model_path)))
     model.eval()
-    val_metric = validate_epoch(model, metric_func, test_loader, device)
+    val_metric = validate_epoch(model, metric_func, test_dataset, 0, device)
     print(f"\nBest model's validation metric in this run: {val_metric}")
 
 

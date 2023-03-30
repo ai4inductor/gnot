@@ -19,6 +19,7 @@ sys.path.append('..')
 import yaml
 import pickle
 import tqdm
+import re
 import time
 import numpy as np
 import matplotlib.pyplot as plt
@@ -256,17 +257,10 @@ if __name__ == "__main__":
     train_loader = MIODataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, drop_last=False)
     test_loader = MIODataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, drop_last=False)
 
-    #### load config file and update refresh using args
-    # with open('config.yml') as f:
-    #     config = yaml.full_load(f)
-    # test_name = os.path.basename(__file__).split('.')[0]
-    # config = config[args.dataset]
 
+    args.space_dim = int(re.search(r'\d', args.dataset).group())
     args.normalizer =  train_dataset.y_normalizer.to(device) if train_dataset.y_normalizer is not None else None
-    # config['attn_norm'] = not args.layer_norm
-    # for arg in vars(args):
-    #     # if arg in config.keys():
-    #     config[arg] = getattr(args, arg)
+
 
 
     #### set random seeds
@@ -284,7 +278,7 @@ if __name__ == "__main__":
     path_prefix = args.dataset  + '_{}_'.format(args.component) + model.__name__ + args.comment + time.strftime('_%m%d_%H_%M_%S')
     model_path, result_path = path_prefix + '.pt', path_prefix + '.pkl'
 
-    print(f"Saving model and result in ./../models/checkpoints/{model_path}\n")
+    print(f"Saving model and result in ./data/checkpoints/{model_path}\n")
 
 
     if args.use_tb:
@@ -339,7 +333,7 @@ if __name__ == "__main__":
                        grad_clip=args.grad_clip,
                        patience=None,
                        model_name=model_path,
-                       model_save_path='./../data/checkpoints/',
+                       model_save_path='./data/checkpoints/',
                        result_name=result_path,
                        writer=writer,
                        device=device)
@@ -348,7 +342,7 @@ if __name__ == "__main__":
 
     # result['args'], result['config'] = args, config
     checkpoint = {'args':args, 'model':model.state_dict(),'optimizer':optimizer.state_dict()}
-    torch.save(checkpoint, os.path.join('./../data/checkpoints/{}'.format(model_path)))
+    torch.save(checkpoint, os.path.join('./data/checkpoints/{}'.format(model_path)))
     # pickle.dump(checkpoint, open(os.path.join('./../models/checkpoints/{}'.format(model_path), result_path),'wb'))
     # model.load_state_dict(torch.load(os.path.join('./../models/checkpoints/', model_path)))
     model.eval()

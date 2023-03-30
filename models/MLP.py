@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 #-*- coding:utf-8 _*-
 import torch
+import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -32,11 +33,16 @@ class MLP(nn.Module):
         self.linear_post = nn.Linear(n_hidden, n_output)
         self.linears = nn.ModuleList([nn.Linear(n_hidden, n_hidden) for _ in range(n_layers)])
 
+        # self.bns = nn.ModuleList([nn.BatchNorm1d(n_hidden) for _ in range(n_layers)])
+
+
 
     def forward(self, x):
         x = self.act(self.linear_pre(x))
         for i in range(self.n_layers):
             x = self.act(self.linears[i](x)) + x
+            # x = self.act(self.bns[i](self.linears[i](x))) + x
+
         x = self.linear_post(x)
         return x
 
@@ -63,6 +69,56 @@ class MLPNOScatter(nn.Module):
         feats = self.mlp(feats)
 
         return feats
+
+
+
+class FourierMLP(nn.Module):
+    def __init__(self, space_dim=2, theta_dim=1, output_size=3, n_layers=2, n_hidden=64, act='gelu',fourier_dim=0, sigma=1):
+        super(FourierMLP, self).__init__()
+        self.space_dim = space_dim
+        self.theta_dim = theta_dim
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.act = act
+        self.sigma = sigma
+        self.fourier_dim = fourier_dim
+
+
+        if fourier_dim > 0:
+            self.B = nn.Parameter(sigma *torch.randn([space_dim, fourier_dim]),requires_grad=False)
+            self.theta_mlp = MLP(theta_dim, fourier_dim, fourier_dim, n_layers=3, act=act)
+            self.mlp = MLP(2*fourier_dim + fourier_dim, n_hidden, output_size, n_layers=n_layers,act=act)
+        else:
+            self.mlp = MLP(space_dim + theta_dim, n_hidden, output_size, n_layers=n_layers,act=act)
+
+        self.__name__ = 'FourierMLP'
+
+
+    def forward(self, *args):
+        if len(args) == 1:
+            x = args[0]
+            theta = x   # an ineffective operation
+        elif len(args) == 2:
+            x, theta = args
+            # feats = torch.cat([x, theta], dim=1)
+
+        elif len(args) == 3:
+            g, u_p, g_u = args
+            x = g.ndata['x']
+            theta = dgl.broadcast_nodes(g, u_p)
+            # x = torch.cat([g.ndata['x'], theta], dim=1)
+        else:
+            raise ValueError
+        if self.fourier_dim > 0:
+            theta_feats = self.theta_mlp(theta)
+            x = torch.cat([torch.sin(2*np.pi*x @ self.B), torch.cos(2*np.pi * x @ self.B), theta_feats],dim=1)
+        else:
+            x = torch.cat([x, theta],dim=1)
+
+        x = self.mlp(x)
+
+        return x
 
 
 

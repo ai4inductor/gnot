@@ -25,10 +25,10 @@ from torch.nn.utils.rnn import pad_sequence
 
 
 
-from gnot.utils import TorchQuantileTransformer, UnitTransformer, PointWiseUnitTransformer, MultipleTensors
+from gnot.utils import TorchQuantileTransformer, UnitTransformer, PointWiseUnitTransformer, MultipleTensors, MinMaxTransformer
 from gnot.models.cgpt import CGPTNO
 from gnot.models.mmgpt import GNOT
-from gnot.models.MLP import MLPNO, MLPNOScatter
+from gnot.models.MLP import MLPNO, MLPNOScatter, FourierMLP
 
 
 
@@ -36,17 +36,25 @@ def get_dataset(args):
     if args.dataset == "ns2d_4ball":
         train_path = './data/ns2d_nomask_4ball_2200_train.pkl'
         test_path = './data/ns2d_nomask_4ball_2200_test.pkl'
-        train_dataset = MIODataset(train_path, name=args.dataset, train=True, train_num=1000,sort_data=args.sort_data,
-                                   normalize_y=args.use_normalizer,
-                                   normalize_x=args.normalize_x)
-        test_dataset = MIODataset(test_path, name=args.dataset, train=False, test_num=100,sort_data=args.sort_data,
-                                  normalize_y=args.use_normalizer,
-                                  normalize_x=args.normalize_x, y_normalizer=train_dataset.y_normalizer)
 
-
-
+    elif args.dataset == "inductor2d":
+        # train_path = './data/inductor2d_nomask_1100_train.pkl'
+        # test_path = './data/inductor2d_nomask_1100_test.pkl'
+        train_path = './data/inductor2d_nodup_1100_train.pkl'
+        test_path = './data/inductor2d_nodup_1100_test.pkl'
+    elif args.dataset == "inductor2d_b":
+        train_path = "./data/inductor2d_bosch_nodup_train.pkl"
+        test_path = './data/inductor2d_bosch_nodup_test.pkl'
     else:
         raise NotImplementedError
+
+    train_dataset = MIODataset(train_path, name=args.dataset, train=True, train_num='all',sort_data=args.sort_data,
+                               normalize_y=args.use_normalizer,
+                               normalize_x=args.normalize_x)
+    test_dataset = MIODataset(test_path, name=args.dataset, train=False, test_num='all',sort_data=args.sort_data,
+                              normalize_y=args.use_normalizer,
+                              normalize_x=args.normalize_x, y_normalizer=train_dataset.y_normalizer,x_normalizer=train_dataset.x_normalizer,up_normalizer=train_dataset.up_normalizer)
+
 
     args.dataset_config = train_dataset.config
 
@@ -57,17 +65,25 @@ def get_scatter_dataset(args):
     if args.dataset == "ns2d_4ball":
         train_path = './data/ns2d_nomask_4ball_2200_train.pkl'
         test_path = './data/ns2d_nomask_4ball_2200_test.pkl'
-        train_dataset = MIOScatterDataset(train_path, name=args.dataset, train=True, train_num=1000,merge_all_inputs=args.merge_inputs,
-                                   normalize_y=args.use_normalizer,
-                                   normalize_x=args.normalize_x)
-        test_dataset = MIOScatterDataset(test_path, name=args.dataset, train=False, test_num=100,merge_all_inputs=args.merge_inputs,
-                                  normalize_y=args.use_normalizer,
-                                  normalize_x=args.normalize_x, y_normalizer=train_dataset.y_normalizer)
 
-
-
+    elif args.dataset == "inductor2d":
+        # train_path = './data/inductor2d_nomask_1100_train.pkl'
+        # test_path = './data/inductor2d_nomask_1100_test.pkl'
+        train_path = './data/inductor2d_nodup_1100_train.pkl'
+        test_path = './data/inductor2d_nodup_1100_test.pkl'
+    elif args.dataset == "inductor2d_b":
+        train_path = "./data/inductor2d_bosch_nodup_train.pkl"
+        test_path = './data/inductor2d_bosch_nodup_test.pkl'
     else:
         raise NotImplementedError
+
+    train_dataset = MIOScatterDataset(train_path, name=args.dataset, train=True, train_num='all',merge_all_inputs=args.merge_inputs,
+                               normalize_y=args.use_normalizer,
+                               normalize_x=args.normalize_x)
+    test_dataset = MIOScatterDataset(test_path, name=args.dataset, train=False, test_num='all',merge_all_inputs=args.merge_inputs,
+                              normalize_y=args.use_normalizer,
+                              normalize_x=args.normalize_x, y_normalizer=train_dataset.y_normalizer,x_normalizer=train_dataset.x_normalizer,up_normalizer=train_dataset.up_normalizer)
+
 
     args.dataset_config = train_dataset.config
 
@@ -75,43 +91,44 @@ def get_scatter_dataset(args):
 
 
 def get_model(args):
-    if args.dataset[:4] == 'ns2d':
+    # if args.dataset[:4] == 'ns2d':
+    #
+    #     space_dim = 2
+    #     g_u_dim = 0
+    #     if args.dataset == "ns2d_4ball" or "ns2d_4ball_rd" or 'ns2d_large':
+    #         u_p_dim = 12
+    #     else:
+    #         raise NotImplementedError
+    #     out_size = 3 if args.component in ['all','all-reduce'] else 1
+    # else:
+    #     raise NotImplementedError
 
-        space_dim = 2
-        g_u_dim = 0
-        if args.dataset == "ns2d_4ball" or "ns2d_4ball_rd" or 'ns2d_large':
-            u_p_dim = 12
-        else:
-            raise NotImplementedError
-        out_size = 3 if args.component in ['all','all-reduce'] else 1
-    else:
-        raise NotImplementedError
-
+    trunk_size, theta_size, output_size = args.dataset_config['input_dim'], args.dataset_config['theta_dim'], args.dataset_config['output_dim']
+    output_size = args.dataset_config['output_dim'] if args.component in ['all', 'all_reduce'] else 1
 
     ### full batch training
     if args.model_name == "CGPT":
-        trunk_size, branch_size, output_size = space_dim + u_p_dim, space_dim + g_u_dim, out_size
-        return CGPTNO(trunk_size=trunk_size,branch_sizes=args.branch_sizes, output_size=output_size,n_layers=args.n_layers, n_hidden=args.n_hidden, n_head=args.n_head,attn_type=args.attn_type, ffn_dropout=args.ffn_dropout, attn_dropout=args.attn_dropout, mlp_layers=args.mlp_layers, act=args.act,horiz_fourier_dim=args.hfourier_dim)
+        # trunk_size, branch_size, output_size = space_dim + u_p_dim, space_dim + g_u_dim, out_size
+
+        return CGPTNO(trunk_size=trunk_size + theta_size ,branch_sizes=args.branch_sizes, output_size=output_size,n_layers=args.n_layers, n_hidden=args.n_hidden, n_head=args.n_head,attn_type=args.attn_type, ffn_dropout=args.ffn_dropout, attn_dropout=args.attn_dropout, mlp_layers=args.mlp_layers, act=args.act,horiz_fourier_dim=args.hfourier_dim)
 
 
 
     elif args.model_name == "GNOT":
-        trunk_size,  output_size = space_dim + u_p_dim , out_size
-        return GNOT(trunk_size=trunk_size,branch_sizes=args.branch_sizes, output_size=output_size,n_layers=args.n_layers, n_hidden=args.n_hidden, n_head=args.n_head,attn_type=args.attn_type, ffn_dropout=args.ffn_dropout, attn_dropout=args.attn_dropout, mlp_layers=args.mlp_layers, act=args.act,horiz_fourier_dim=args.hfourier_dim,space_dim=space_dim,n_experts=args.n_experts, n_inner=args.n_inner)
+
+        return GNOT(trunk_size=trunk_size + theta_size,branch_sizes=args.branch_sizes, output_size=output_size,n_layers=args.n_layers, n_hidden=args.n_hidden, n_head=args.n_head,attn_type=args.attn_type, ffn_dropout=args.ffn_dropout, attn_dropout=args.attn_dropout, mlp_layers=args.mlp_layers, act=args.act,horiz_fourier_dim=args.hfourier_dim,space_dim=args.space_dim,n_experts=args.n_experts, n_inner=args.n_inner)
 
 
     elif args.model_name == 'MLP':
-        trunk_size, theta_size, output_size = args.dataset_config['input_dim'], args.dataset_config['theta_dim'], args.dataset_config['output_dim']
-        output_size = args.dataset_config['output_dim'] if args.component in ['all', 'all_reduce'] else 1
         return MLPNO(input_size=trunk_size + theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers)
 
 
     ### scatter training
     elif args.model_name == 'MLP_s':
-        trunk_size, theta_size, output_size = args.dataset_config['input_dim'], args.dataset_config['theta_dim'], args.dataset_config['output_dim']
-        output_size = args.dataset_config['output_dim'] if args.component in ['all', 'all_reduce'] else 1
         return MLPNOScatter(input_size=trunk_size + theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers)
 
+    elif args.model_name == "FourierMLP":
+        return FourierMLP(space_dim=args.space_dim, theta_dim= theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers, fourier_dim=args.hfourier_dim, sigma=args.sigma)
 
 
 
@@ -264,15 +281,20 @@ def collate_op(items):
 
 
 
-
+''' 
+    Dataset format:
+    [X, Y, theta, (f1, f2, ...)], input functions could be None
+'''
 class MIODataset(DGLDataset):
-    def __init__(self, data_path, name=' ',train=True,test=False, train_num=None, test_num=None, use_cache=True, normalize_y=False, y_normalizer=None, normalize_x = False, sort_data=False):
+    def __init__(self, data_path, name=' ',train=True,test=False, train_num=None, test_num=None, use_cache=True, normalize_y=False, y_normalizer=None, x_normalizer=None, up_normalizer=None,normalize_x = False, sort_data=False):
         self.data_path = data_path
         self.cached_path = self.data_path[:-4] + '_' + 'train' + '_cached' +self.data_path[-4:] if train else  self.data_path[:-4] + '_' + 'test' + '_cached' +self.data_path[-4:]
         self.use_cache = use_cache
         self.normalize_y = normalize_y
         self.normalize_x = normalize_x
         self.y_normalizer = y_normalizer
+        self.x_normalizer = x_normalizer
+        self.up_normalizer = up_normalizer
         self.sort_data = sort_data
         self.num_inputs = 0
 
@@ -282,19 +304,30 @@ class MIODataset(DGLDataset):
             data_all = pickle.load(open(self.data_path, "rb"))
             print('Load dataset finished {}'.format(time.time()-time0))
             #### initialize dataset
+            # processing logic: if both train_num and test_num is None, then divide by 0.8:0.2 using a single file, else use two files
             self.train = train
             if ((train_num is None) and (test_num is None)):
                 self.train_num = int(0.8 * len(data_all))
                 self.test_num = len(data_all) - self.train_num
-            else:
-                self.train_num = train_num if train_num is not None else len(data_all) - test_num
-                self.test_num = test_num if test_num is not None else len(data_all) - train_num
-                assert (self.train_num > 0) and (self.test_num > 0)  #
-
             if self.train:
+                if train_num == 'all':   # use all to train
+                    self.train_num = len(data_all)
+                else:
+                    self.train_num = min(train_num, len(data_all))
+                    if train_num > len(data_all):
+                        print('Warnings: there is no enough train data {} / {}'.format(train_num, len(data_all)))
                 self.data_list = data_all[:self.train_num]
+                print('Training with {} samples'.format(self.train_num))
             else:
-                self.data_list = data_all[-self.test_num:] if (self.test_num is not None) else data_all[train_num:]
+                if test_num == "all":
+                    self.test_num = len(data_all)
+                else:
+                    self.test_num = min(test_num, len(data_all))
+                    if test_num > len(data_all):
+                        print('Warnings: there is no enough test data {} / {}'.format(test_num, len(data_all)))
+
+                self.data_list = data_all[-self.test_num:]
+                print('Testing with {} samples'.format(self.test_num))
 
         super(MIODataset, self).__init__(name)   #### invoke super method after read data
 
@@ -322,6 +355,9 @@ class MIODataset(DGLDataset):
                 self.inputs_f.append(input_f)
                 self.num_inputs = len(input_f)
 
+        if len(self.inputs_f) == 0:
+            self.inputs_f = torch.zeros([len(self)])  # pad values, tensor of 0, not list
+
             # print('processing {}'.format(i))d
 
         #### sort data if necessary
@@ -332,9 +368,9 @@ class MIODataset(DGLDataset):
 
 
         #### normalize_y
-        if self.normalize_y:
+        if self.normalize_y != 'none':
             self.__normalize_y()
-        if self.normalize_x:
+        if self.normalize_x != 'none':
             self.__normalize_x()
 
         self.__update_dataset_config()
@@ -353,35 +389,47 @@ class MIODataset(DGLDataset):
     def __normalize_y(self):
         if self.y_normalizer is None:
             y_feats_all = torch.cat([g.ndata['y'] for g in self.graphs],dim=0)
-            # self.y_normalizer = QuantileTransformer(output_distribution='normal')
-            # self.y_normalizer = self.y_normalizer.fit(y_feats_all)
-            # self.y_normalizer = TorchQuantileTransformer(self.y_normalizer.output_distribution, self.y_normalizer.references_,self.y_normalizer.quantiles_)
-            self.y_normalizer = UnitTransformer(y_feats_all)
-            print(self.y_normalizer.mean, self.y_normalizer.std)
+            if self.normalize_y == 'unit':
+                self.y_normalizer = UnitTransformer(y_feats_all)
+                print('Target features are normalized using unit transformer')
+                print(self.y_normalizer.mean, self.y_normalizer.std)
+
+
+            elif self.normalize_y == 'minmax':
+                self.y_normalizer = MinMaxTransformer(y_feats_all)
+                print('Target features are normalized using unit transformer')
+                print(self.y_normalizer.max, self.y_normalizer.min)
+
+            elif self.normalize_y == 'quantile':
+                self.y_normalizer = QuantileTransformer(output_distribution='normal')
+                self.y_normalizer = self.y_normalizer.fit(y_feats_all)
+                self.y_normalizer = TorchQuantileTransformer(self.y_normalizer.output_distribution, self.y_normalizer.references_,self.y_normalizer.quantiles_)
+                print('Target features are normalized using quantile transformer')
 
 
         for g in self.graphs:
             g.ndata['y'] = self.y_normalizer.transform(g.ndata["y"], inverse=False)  # a torch quantile transformer
 
-        # print('Target features are normalized using quantile transformer')
-        print('Target features are normalized using unit transformer')
 
 
     def __normalize_x(self):
-        x_feats_all = torch.cat([g.ndata["x"] for g in self.graphs],dim=0)
+        if self.x_normalizer is None:
+            x_feats_all = torch.cat([g.ndata["x"] for g in self.graphs],dim=0)
+            if self.normalize_x == 'unit':
+                self.x_normalizer = UnitTransformer(x_feats_all)
+                self.up_normalizer = UnitTransformer(self.u_p)
 
-        self.x_normalizer = UnitTransformer(x_feats_all)
+            elif self.normalize_x == 'minmax':
+                self.x_normalizer = MinMaxTransformer(x_feats_all)
+                self.up_normalizer = MinMaxTransformer(self.u_p)
 
-        # for g in self.graphs:
-        #     g.ndata['x'] = self.x_normalizer.transform(g.ndata['x'], inverse=False)
+            else:
+                raise NotImplementedError
 
-        # if self.graphs_u[0].number_of_nodes() > 0:
-        #     for g in self.graphs_u:
-        #         g.ndata['x'] = self.x_normalizer.transform(g.ndata['x'], inverse=False)
 
-        self.up_normalizer = UnitTransformer(self.u_p)
+        for g in self.graphs:
+            g.ndata['x'] = self.x_normalizer.transform(g.ndata['x'], inverse=False)
         self.u_p = self.up_normalizer.transform(self.u_p, inverse=False)
-
 
         print('Input features are normalized using unit transformer')
 
@@ -391,7 +439,7 @@ class MIODataset(DGLDataset):
             'input_dim': self.graphs[0].ndata['x'].shape[1],
             'theta_dim': self.u_p.shape[1],
             'output_dim': self.graphs[0].ndata['y'].shape[1],
-            'branch_sizes': [x.shape[1] for x in self.inputs_f[0]]
+            'branch_sizes': [x.shape[1] for x in self.inputs_f[0]] if isinstance(self.inputs_f, list) else 0
 
         }
         return
@@ -410,13 +458,16 @@ class MIODataset(DGLDataset):
 
 
 class MIOScatterDataset(DGLDataset):
-    def __init__(self, data_path, name=' ',train=True,test=False, train_num=None, test_num=None, use_cache=True, normalize_y=False, y_normalizer=None, normalize_x = False, merge_all_inputs=True):
+    def __init__(self, data_path, name=' ',train=True,test=False, train_num=None, test_num=None, use_cache=True, normalize_y=False, y_normalizer=None, normalize_x = False, merge_all_inputs=True, x_normalizer=None, up_normalizer=None):
         self.data_path = data_path
         self.cached_path = self.data_path[:-4] + '_' + 'train' + '_cached' +self.data_path[-4:] if train else  self.data_path[:-4] + '_' + 'test' + '_cached' +self.data_path[-4:]
         self.use_cache = use_cache
+        self.train = train
         self.normalize_y = normalize_y
         self.normalize_x = normalize_x
         self.y_normalizer = y_normalizer
+        self.x_normalizer = x_normalizer
+        self.up_normalizer = up_normalizer
         self.num_inputs = 0
         self.theta_dim = 0
         self.branch_sizes = []
@@ -431,19 +482,28 @@ class MIOScatterDataset(DGLDataset):
             data_all = pickle.load(open(self.data_path, "rb"))
             print('Load dataset finished {}'.format(time.time()-time0))
             #### initialize dataset
-            self.train = train
             if ((train_num is None) and (test_num is None)):
                 self.train_num = int(0.8 * len(data_all))
                 self.test_num = len(data_all) - self.train_num
-            else:
-                self.train_num = train_num if train_num is not None else len(data_all) - test_num
-                self.test_num = test_num if test_num is not None else len(data_all) - train_num
-                assert (self.train_num >0 ) and (self.test_num > 0)   #
-
             if self.train:
+                if train_num == 'all':   # use all to train
+                    self.train_num = len(data_all)
+                else:
+                    self.train_num = min(train_num, len(data_all))
+                    if train_num > len(data_all):
+                        print('Warnings: there is no enough train data {} / {}'.format(train_num, len(data_all)))
                 self.data_list = data_all[:self.train_num]
+                print('Training with {} samples'.format(self.train_num))
             else:
-                self.data_list = data_all[-self.test_num:] if (self.test_num is not None) else data_all[train_num:]
+                if test_num == "all":
+                    self.test_num = len(data_all)
+                else:
+                    self.test_num = min(test_num, len(data_all))
+                    if test_num > len(data_all):
+                        print('Warnings: there is no enough test data {} / {}'.format(test_num, len(data_all)))
+
+                self.data_list = data_all[-self.test_num:]
+                print('Testing with {} samples'.format(self.test_num))
 
         super(MIOScatterDataset, self).__init__(name)   #### invoke super method after read data
 
@@ -473,6 +533,8 @@ class MIOScatterDataset(DGLDataset):
                 self.inputs_f.append(input_f)
                 self.num_inputs = len(input_f)
 
+        if len(self.inputs_f) == 0:
+            self.inputs_f = torch.zeros([len(self.graphs)])  # pad values, tensor of 0, not list
             # print('processing {}'.format(i))d
 
 
@@ -483,9 +545,9 @@ class MIOScatterDataset(DGLDataset):
 
 
         #### normalize_y
-        if self.normalize_y:
+        if self.normalize_y != 'none':
             self.__normalize_y()
-        if self.normalize_x:
+        if self.normalize_x != 'none':
             self.__normalize_x()
 
 
@@ -529,35 +591,46 @@ class MIOScatterDataset(DGLDataset):
     def __normalize_y(self):
         if self.y_normalizer is None:
             y_feats_all = torch.cat([g.ndata['y'] for g in self.graphs],dim=0)
-            # self.y_normalizer = QuantileTransformer(output_distribution='normal')
-            # self.y_normalizer = self.y_normalizer.fit(y_feats_all)
-            # self.y_normalizer = TorchQuantileTransformer(self.y_normalizer.output_distribution, self.y_normalizer.references_,self.y_normalizer.quantiles_)
-            self.y_normalizer = UnitTransformer(y_feats_all)
-            print(self.y_normalizer.mean, self.y_normalizer.std)
+            if self.normalize_y == 'unit':
+                self.y_normalizer = UnitTransformer(y_feats_all)
+                print('Target features are normalized using unit transformer')
+                print(self.y_normalizer.mean, self.y_normalizer.std)
 
+
+            elif self.normalize_y == 'minmax':
+                self.y_normalizer = MinMaxTransformer(y_feats_all)
+                print('Target features are normalized using unit transformer')
+                print(self.y_normalizer.max, self.y_normalizer.min)
+
+            elif self.normalize_y == 'quantile':
+                self.y_normalizer = QuantileTransformer(output_distribution='normal')
+                self.y_normalizer = self.y_normalizer.fit(y_feats_all)
+                self.y_normalizer = TorchQuantileTransformer(self.y_normalizer.output_distribution, self.y_normalizer.references_,self.y_normalizer.quantiles_)
+                print('Target features are normalized using quantile transformer')
 
         for g in self.graphs:
             g.ndata['y'] = self.y_normalizer.transform(g.ndata["y"], inverse=False)  # a torch quantile transformer
 
-        # print('Target features are normalized using quantile transformer')
-        print('Target features are normalized using unit transformer')
 
 
     def __normalize_x(self):
-        x_feats_all = torch.cat([g.ndata["x"] for g in self.graphs],dim=0)
+        if self.x_normalizer is None:
+            x_feats_all = torch.cat([g.ndata["x"] for g in self.graphs],dim=0)
+            if self.normalize_x == 'unit':
+                self.x_normalizer = UnitTransformer(x_feats_all)
+                self.up_normalizer = UnitTransformer(self.u_p)
 
-        self.x_normalizer = UnitTransformer(x_feats_all)
+            elif self.normalize_x == 'minmax':
+                self.x_normalizer = MinMaxTransformer(x_feats_all)
+                self.up_normalizer = MinMaxTransformer(self.u_p)
 
-        # for g in self.graphs:
-        #     g.ndata['x'] = self.x_normalizer.transform(g.ndata['x'], inverse=False)
+            else:
+                raise NotImplementedError
 
-        # if self.graphs_u[0].number_of_nodes() > 0:
-        #     for g in self.graphs_u:
-        #         g.ndata['x'] = self.x_normalizer.transform(g.ndata['x'], inverse=False)
 
-        self.up_normalizer = UnitTransformer(self.u_p)
+        for g in self.graphs:
+            g.ndata['x'] = self.x_normalizer.transform(g.ndata['x'], inverse=False)
         self.u_p = self.up_normalizer.transform(self.u_p, inverse=False)
-
 
         print('Input features are normalized using unit transformer')
 
@@ -566,8 +639,9 @@ class MIOScatterDataset(DGLDataset):
         self.config = {'input_dim': self.X_data.shape[1],
                        'theta_dim': self.theta_dim,
                        'output_dim': self.Y_data.shape[1],
-                       'branch_sizes': [x.shape[1] for x in self.inputs_f[0]]
+                       'branch_sizes': [x.shape[1] for x in self.inputs_f[0]] if isinstance(self.inputs_f, list) else 0
                        }
+        print('dataset config: {}'.format(self.config))
         return
 
 
@@ -640,6 +714,7 @@ class MIODataLoader(torch.utils.data.DataLoader):
 
 '''
     A simple warped class for Lp loss in scatter training, supports L1, L2
+    Note that L2 loss is MSE loss
 '''
 class ScatterLpLoss(_WeightedLoss):
     def __init__(self, d=2, p=2, component=0, regularizer=False, normalizer=None):
@@ -657,7 +732,7 @@ class ScatterLpLoss(_WeightedLoss):
         if offsets is None:
             if self.component == 'all':
                 losses =  ((pred - target).abs() ** self.p)
-                loss = losses.mean()  ** (1 / self.p)
+                loss = losses.mean() ** (1 / self.p)
                 metrics = (losses.mean(dim=0) ** (1 /self.p)).clone().detach().cpu().numpy()
 
             else:
@@ -690,9 +765,7 @@ class ScatterLpLoss(_WeightedLoss):
         loss, metrics = self._lp_losses(pred, target, offsets=offsets)
 
         if self.normalizer is not None:
-            ori_pred, ori_target = self.normalizer.transform(pred, component=self.component,
-                                                             inverse=True), self.normalizer.transform(target,
-                                                                                                      inverse=True)
+            ori_pred, ori_target = self.normalizer.transform(pred, component=self.component,inverse=True), self.normalizer.transform(target,inverse=True)
             _, metrics = self._lp_losses(ori_pred, ori_target, offsets=offsets)
 
         if self.regularizer:
@@ -720,7 +793,7 @@ class ScatterLpRelLoss(_WeightedLoss):
         if offsets is None:     ## single batch case
             if self.component in ['all','all-reduce']:
                 err =  ((pred - target).abs() ** self.p)
-                losses = (err.sum(dim=0)/ (target ** self.p).sum(dim=0)) ** (1 / self.p)
+                losses = (err.sum(dim=0)/ (target.abs() ** self.p).sum(dim=0)) ** (1 / self.p)
                 loss = losses.mean()
                 if self.component == 'all':
                     metrics = losses.clone().detach().cpu().numpy()
@@ -730,7 +803,7 @@ class ScatterLpRelLoss(_WeightedLoss):
             else:
                 assert self.component <= target.shape[1]
                 err = (pred - target[:, self.component: self.component + 1]).abs() ** self.p
-                losses = (err.sum(dim=0) / (target ** self.p).sum(dim=0)) ** (1 / self.p)
+                losses = (err.sum(dim=0) / (target[:, self.component : self.component + 1].abs() ** self.p).sum(dim=0)) ** (1 / self.p)
                 loss = losses.mean()
                 metrics = loss.clone().detach().cpu().numpy()
         else:
@@ -765,10 +838,11 @@ class ScatterLpRelLoss(_WeightedLoss):
         loss, metrics = self._lp_losses(pred, target, offsets=offsets)
 
         if self.normalizer is not None:
-            ori_pred, ori_target = self.normalizer.transform(pred, component=self.component,
-                                                             inverse=True), self.normalizer.transform(target,
-                                                                                                      inverse=True)
+            ori_pred = self.normalizer.transform(pred, component=self.component,inverse=True) #, self.normalizer.transform(target,inverse=True)
+            ori_target = self.normalizer.transform(target, inverse=True)
             _, metrics = self._lp_losses(ori_pred, ori_target, offsets=offsets)
+        else:
+            loss, metrics = self._lp_losses(pred, target, offsets=offsets)
 
         if self.regularizer:
             raise NotImplementedError
@@ -822,7 +896,7 @@ class WeightedLpRelLoss(_WeightedLoss):
 
         if self.normalizer is not None:
             ori_pred, ori_target = self.normalizer.transform(pred,component=self.component,inverse=True), self.normalizer.transform(target, inverse=True)
-            _, metrics = self._lp_losses(g, ori_pred, ori_target)
+            _ , metrics = self._lp_losses(g, ori_pred, ori_target)
 
         if self.regularizer:
             raise NotImplementedError

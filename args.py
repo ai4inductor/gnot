@@ -11,9 +11,11 @@ import argparse
 def get_args():
     parser = argparse.ArgumentParser(description='GNOT for operator learning')
     parser.add_argument('--dataset',type=str,
-                        default='ns2d_4ball',
-                        choices = ['ns2d_4ball',])
+                        default='inductor2d',
+                        choices = ['ns2d_4ball','inductor2d','inductor2d_b'])
 
+    parser.add_argument('--space-dim',type=int, default=0,
+                        help='If set to 0, auto search the first number in the dataset name as space dim')
 
     parser.add_argument('--component',type=str,
                         default='all',)
@@ -23,19 +25,21 @@ def get_args():
     parser.add_argument('--seed', type=int, default=2022, metavar='Seed',
                         help='random seed (default: 1127802)')
 
-    parser.add_argument('--gpu', type=int, default=7, help='gpu id')
+    parser.add_argument('--gpu', type=int, default=1, help='gpu id')
     parser.add_argument('--use-tb', type=int, default=0, help='whether use tensorboard')
     parser.add_argument('--comment',type=str,default="",help="comment for the experiment")
 
     #### new add options
-    parser.add_argument('--train-portion', type=float, default=0.5)
-    parser.add_argument('--valid-portion', type=float, default=0.1)
+    # parser.add_argument('--train-portion', type=float, default=0.5)
+    # parser.add_argument('--valid-portion', type=float, default=0.1)
 
     parser.add_argument('--sort-data',type=int, default=0)
 
-    parser.add_argument('--normalize_x',type=int, default=0)
-    parser.add_argument('--use-normalizer',type=int, default=0,
-                        help = "whether use quantile transformer for normalizing y")
+    parser.add_argument('--normalize_x',type=str, default='minmax',
+                        choices=['none','minmax','unit'])
+    parser.add_argument('--use-normalizer',type=str, default='unit',
+                        choices=['none','minmax','unit','quantile'],
+                        help = "whether normalize y")
 
 
     parser.add_argument('--epochs', type=int, default=500, metavar='N',
@@ -65,7 +69,7 @@ def get_args():
                         help='disables CUDA training')
 
 
-    parser.add_argument('--lr-method',type=str, default='cycle',
+    parser.add_argument('--lr-method',type=str, default='step',
                         choices=['cycle','step','warmup'])
     parser.add_argument('--lr-step-size',type=int, default=50
                         )
@@ -75,8 +79,8 @@ def get_args():
                         choices=['rel2','rel1', 'l2', 'l1'])
     #### public model architecture parameters
 
-    parser.add_argument('--model-name', type=str, default='MLP_s',
-                        choices=['CGPT', 'GNOT', 'MLP','MLP_s'])
+    parser.add_argument('--model-name', type=str, default='FourierMLP',
+                        choices=['CGPT', 'GNOT', 'MLP','MLP_s','FourierMLP'])
     parser.add_argument('--n-hidden',type=int, default=128)
     parser.add_argument('--n-layers',type=int, default=5)
 
@@ -101,7 +105,8 @@ def get_args():
     # GPT
     # parser.add_argument('--subsampled-len',type=int, default=256)
     parser.add_argument('--attn-type',type=str, default='linear', choices=['random','linear','gated','hydra','kernel'])
-    parser.add_argument('--hfourier-dim',type=int,default=0)
+    parser.add_argument('--hfourier-dim',type=int,default=128)
+    parser.add_argument('--sigma',type=float, default=2**3)
 
     # GNOT
     parser.add_argument('--n-experts',type=int, default=1)

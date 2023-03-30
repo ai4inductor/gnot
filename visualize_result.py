@@ -26,7 +26,7 @@ if __name__ == "__main__":
     config = result['config']
     model_dict = result['model']
 
-    vis_component = 2 if args.component == 'all' else int(args.component)
+    vis_component = 1 if args.component == 'all' else int(args.component)
 
     device = torch.device('cpu')
     # if not args.no_cuda and torch.cuda.is_available():
