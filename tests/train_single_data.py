@@ -80,7 +80,7 @@ normalizer = normalizer.to(device)
 ymin, ymax = Y.min(), Y.max()
 
 criterion = nn.MSELoss()
-lp_rel_err = lambda x,y,p: ((np.abs(x-y)**p).sum()/(np.abs(y)**p).sum())
+lp_rel_err = lambda x,y,p: ((np.abs(x-y)**p).sum()/(np.abs(y)**p).sum())**(1/p)
 optimizer = optim.Adam(net.parameters(), lr=1e-4, betas=(0.99,0.99))
 
 num_epochs = 10000

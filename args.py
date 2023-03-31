@@ -11,8 +11,8 @@ import argparse
 def get_args():
     parser = argparse.ArgumentParser(description='GNOT for operator learning')
     parser.add_argument('--dataset',type=str,
-                        default='inductor2d',
-                        choices = ['ns2d_4ball','inductor2d','inductor2d_b'])
+                        default='inductor3d_A1',
+                        choices = ['ns2d_4ball','inductor2d','inductor2d_b','inductor3d_A1','inductor3d_B1'])
 
     parser.add_argument('--space-dim',type=int, default=0,
                         help='If set to 0, auto search the first number in the dataset name as space dim')
@@ -30,8 +30,8 @@ def get_args():
     parser.add_argument('--comment',type=str,default="",help="comment for the experiment")
 
     #### new add options
-    # parser.add_argument('--train-portion', type=float, default=0.5)
-    # parser.add_argument('--valid-portion', type=float, default=0.1)
+    parser.add_argument('--train-num', type=str, default='all')
+    parser.add_argument('--test-num', type=str, default='all')
 
     parser.add_argument('--sort-data',type=int, default=0)
 
@@ -79,7 +79,7 @@ def get_args():
                         choices=['rel2','rel1', 'l2', 'l1'])
     #### public model architecture parameters
 
-    parser.add_argument('--model-name', type=str, default='FourierMLP',
+    parser.add_argument('--model-name', type=str, default='MLP_s',
                         choices=['CGPT', 'GNOT', 'MLP','MLP_s','FourierMLP'])
     parser.add_argument('--n-hidden',type=int, default=128)
     parser.add_argument('--n-layers',type=int, default=5)

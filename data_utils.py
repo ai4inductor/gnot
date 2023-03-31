@@ -45,13 +45,25 @@ def get_dataset(args):
     elif args.dataset == "inductor2d_b":
         train_path = "./data/inductor2d_bosch_nodup_train.pkl"
         test_path = './data/inductor2d_bosch_nodup_test.pkl'
+
+    elif args.dataset in  ["inductor3d_A1","inductor3d_B1"]:
+        if args.dataset == "inductor3d_A1":
+            train_path = "./data/inductor3d_A1_train.pkl"
+            test_path = "./data/inductor3d_A1_test.pkl"
+        elif args.dataset == "inductor3d_B1":
+            train_path = "./data/inductor3d_B1_train.pkl"
+            test_path = "./data/inductor3d_B1_test.pkl"
+
     else:
         raise NotImplementedError
 
-    train_dataset = MIODataset(train_path, name=args.dataset, train=True, train_num='all',sort_data=args.sort_data,
+    args.train_num = int(args.train_num) if args.train_num not in ['all', 'none'] else args.train_num
+    args.test_num = int(args.test_num) if args.test_num not in ['all', 'none'] else args.test_num
+
+    train_dataset = MIODataset(train_path, name=args.dataset, train=True, train_num=args.train_num,sort_data=args.sort_data,
                                normalize_y=args.use_normalizer,
                                normalize_x=args.normalize_x)
-    test_dataset = MIODataset(test_path, name=args.dataset, train=False, test_num='all',sort_data=args.sort_data,
+    test_dataset = MIODataset(test_path, name=args.dataset, train=False, test_num=args.test_num,sort_data=args.sort_data,
                               normalize_y=args.use_normalizer,
                               normalize_x=args.normalize_x, y_normalizer=train_dataset.y_normalizer,x_normalizer=train_dataset.x_normalizer,up_normalizer=train_dataset.up_normalizer)
 
@@ -74,13 +86,27 @@ def get_scatter_dataset(args):
     elif args.dataset == "inductor2d_b":
         train_path = "./data/inductor2d_bosch_nodup_train.pkl"
         test_path = './data/inductor2d_bosch_nodup_test.pkl'
+
+    elif args.dataset in ["inductor3d_A1", "inductor3d_B1"]:
+        if args.dataset == "inductor3d_A1":
+            train_path = "./data/inductor3d_A1_train.pkl"
+            test_path = "./data/inductor3d_A1_test.pkl"
+        elif args.dataset == "inductor3d_B1":
+            train_path = "./data/inductor3d_B1_train.pkl"
+            test_path = "./data/inductor3d_B1_test.pkl"
+
     else:
         raise NotImplementedError
 
-    train_dataset = MIOScatterDataset(train_path, name=args.dataset, train=True, train_num='all',merge_all_inputs=args.merge_inputs,
+
+    args.train_num = int(args.train_num) if args.train_num not in ['all','none'] else args.train_num
+    args.test_num = int(args.test_num) if args.test_num not in ['all','none'] else args.test_num
+
+
+    train_dataset = MIOScatterDataset(train_path, name=args.dataset, train=True, train_num=args.train_num,merge_all_inputs=args.merge_inputs,
                                normalize_y=args.use_normalizer,
                                normalize_x=args.normalize_x)
-    test_dataset = MIOScatterDataset(test_path, name=args.dataset, train=False, test_num='all',merge_all_inputs=args.merge_inputs,
+    test_dataset = MIOScatterDataset(test_path, name=args.dataset, train=False, test_num=args.test_num,merge_all_inputs=args.merge_inputs,
                               normalize_y=args.use_normalizer,
                               normalize_x=args.normalize_x, y_normalizer=train_dataset.y_normalizer,x_normalizer=train_dataset.x_normalizer,up_normalizer=train_dataset.up_normalizer)
 
@@ -306,7 +332,7 @@ class MIODataset(DGLDataset):
             #### initialize dataset
             # processing logic: if both train_num and test_num is None, then divide by 0.8:0.2 using a single file, else use two files
             self.train = train
-            if ((train_num is None) and (test_num is None)):
+            if ((train_num == 'none') and (test_num == 'none')):
                 self.train_num = int(0.8 * len(data_all))
                 self.test_num = len(data_all) - self.train_num
             if self.train:
@@ -482,7 +508,7 @@ class MIOScatterDataset(DGLDataset):
             data_all = pickle.load(open(self.data_path, "rb"))
             print('Load dataset finished {}'.format(time.time()-time0))
             #### initialize dataset
-            if ((train_num is None) and (test_num is None)):
+            if ((train_num == 'none') and (test_num == 'none')):
                 self.train_num = int(0.8 * len(data_all))
                 self.test_num = len(data_all) - self.train_num
             if self.train:
@@ -654,6 +680,35 @@ class MIOScatterDataset(DGLDataset):
 
 
 
+class IdxDataset(torch.utils.data.Dataset):
+    def __init__(self, data_len, batch_size, drop_last=False,shuffle=True):
+        random_idxs = torch.randperm(data_len) if shuffle else torch.arange(data_len)
+        data_idx = [random_idxs[torch.arange(i, min(i+batch_size, data_len))] for i in range(0, data_len, batch_size)]
+        if drop_last:
+            data_idx = data_idx[:-1]
+        self.total_data_len = (data_len // batch_size)*batch_size if drop_last else data_len
+        self.data_idx = data_idx
+        self.batch_size = batch_size
+        self.drop_last = drop_last
+        self.shuffle = shuffle
+
+    def reset(self):
+
+        random_idxs = torch.randperm(self.total_data_len) if self.shuffle else torch.arange(self.total_data_len)
+        data_idx = [random_idxs[torch.arange(i, min(i + self.batch_size, self.total_data_len))] for i in range(0, self.total_data_len, self.batch_size)]
+
+        self.data_idx = data_idx
+
+
+
+    def __getitem__(self, item):
+        return self.data_idx[item]
+
+
+    def __len__(self):
+        return len(self.data_idx)
+
+
 
 
 
@@ -709,6 +764,9 @@ class MIODataLoader(torch.utils.data.DataLoader):
     def __len__(self):
         # 返回数据集的批次数
         return len(self.batch_indices)
+
+
+
 
 
 

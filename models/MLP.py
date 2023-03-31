@@ -98,16 +98,15 @@ class FourierMLP(nn.Module):
     def forward(self, *args):
         if len(args) == 1:
             x = args[0]
-            theta = x   # an ineffective operation
+            theta = torch.zeros([x.shape[0],1]).to(x.device)   # an ineffective operation
         elif len(args) == 2:
             x, theta = args
-            # feats = torch.cat([x, theta], dim=1)
 
         elif len(args) == 3:
             g, u_p, g_u = args
             x = g.ndata['x']
             theta = dgl.broadcast_nodes(g, u_p)
-            # x = torch.cat([g.ndata['x'], theta], dim=1)
+
         else:
             raise ValueError
         if self.fourier_dim > 0:

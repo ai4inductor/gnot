@@ -15,13 +15,21 @@ from gnot.utils import UnitTransformer,MinMaxTransformer
 from gnot.tests.siren_demo import Siren
 
 
-data = np.load('OneCase3D_2a.npz')
-x,y,z, v = data['xxa'], data['yya'], data['zza'], data['vva']
+# data = np.load('OneCase3D_2a.npz')
+# x,y,z, v = data['xxa'], data['yya'], data['zza'], data['vva']
+#
+# # data = np.load('OneCase3D_2b.npz')
+# # x,y,z, v = data['xxb'], data['yyb'], data['zzb'], data['vvb']
+# X = np.stack([x,y,z],axis=-1)
+# Y = v[...,None]
 
-# data = np.load('OneCase3D_2b.npz')
-# x,y,z, v = data['xxb'], data['yyb'], data['zzb'], data['vvb']
-X = np.stack([x,y,z],axis=-1)
-Y = v[...,None]
+data_path = './../data/inductor3d_A1_test.pkl'
+dataset = pickle.load(open(data_path,'rb'))
+
+idx = 0
+component = 1
+X, Y, theta, _ = dataset[idx]
+
 
 
 class PostAct(nn.Module):
@@ -79,7 +87,7 @@ X, Y = X[indices_to_keep], Y[indices_to_keep]
 X = torch.from_numpy(X).float()
 Y = torch.from_numpy(Y).float()
 
-Y = 10**Y
+# Y = 10**Y
 
 
 
@@ -103,8 +111,8 @@ X = X[train_idxs]
 Y = Y[train_idxs]
 print('Using {} / {} downsampling'.format(len(train_idxs), Y_all.shape[0]))
 
-# net = MLP(3, 256, 1, 4, 'relu')
-# net = FourierMLP(3, n_hidden=128, output_size=1, n_layers=5, act='gelu',fourier_dim=128,sigma=10)
+# net = MLP(3, 256, 1, 5, 'gelu')
+# net = FourierMLP(3, n_hidden=256, output_size=1, n_layers=4, act='relu',fourier_dim=128,sigma=32)
 net = Siren(in_features=3, out_features=1, hidden_layers=4,hidden_features=256,outermost_linear=True)
 
 
@@ -126,7 +134,7 @@ normalizer = normalizer.to(device)
 ymin, ymax = Y.min(), Y.max()
 
 criterion = nn.MSELoss()
-lp_rel_err = lambda x,y,p: ((np.abs(x-y)**p).sum()/(np.abs(y)**p).sum())
+lp_rel_err = lambda x,y,p: ((np.abs(x-y)**p).sum()/(np.abs(y)**p).sum())**(1/p)
 optimizer = optim.AdamW(net.parameters(), lr=1e-4, betas=(0.9,0.999))    # 3d problem, 1e-3 does not converge good for Siren
 
 num_epochs = 10000
@@ -152,7 +160,7 @@ for epoch in range(num_epochs):
     losses.append(loss.item())
 
     # 每隔 plot_interval 个 epoch 绘制散点图
-    if (epoch ) % plot_interval == 0:
+    if (epoch + 1) % plot_interval == 0:
         print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {loss.item():.4f}')
 
         outputs = net(X_all)
@@ -232,8 +240,12 @@ for epoch in range(num_epochs):
             plt.suptitle(f'Epoch {epoch + 1}')
             plt.show()
 
-        # plot_scatter_3d(X_np, Y_np_orig, outputs_np_orig, shared_colorbar=False,epoch=epoch)
-        plot_scatter_3d(X_np, Y_np, outputs_np, shared_colorbar=False,epoch=epoch)
+        ### show large values error
+        # idxs = (Y_np_orig>0.9*Y_np_orig.max()).squeeze()
+        # X_np, Y_np_orig, outputs_np_orig = X_np[idxs], Y_np_orig[idxs], outputs_np_orig[idxs]
+
+        plot_scatter_3d(X_np, Y_np_orig, outputs_np_orig, shared_colorbar=False,epoch=epoch)
+        # plot_scatter_3d(X_np, Y_np, outputs_np, shared_colorbar=False,epoch=epoch)
 
 plt.figure()
 plt.semilogy(np.arange(0,len(losses)), np.array(losses))
