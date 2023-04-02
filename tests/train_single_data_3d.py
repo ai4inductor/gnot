@@ -7,10 +7,11 @@ import torch.nn as nn
 import torch.optim as optim
 import matplotlib
 from scipy.spatial import cKDTree
+from sklearn.preprocessing import QuantileTransformer
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
 from gnot.models.MLP import MLP, FourierMLP
-from gnot.utils import UnitTransformer,MinMaxTransformer
+from gnot.utils import UnitTransformer,MinMaxTransformer, TorchQuantileTransformer
 
 from gnot.tests.siren_demo import Siren
 
@@ -94,6 +95,10 @@ Y = torch.from_numpy(Y).float()
 
 
 normalizer = UnitTransformer(Y)
+# np_normalizer = QuantileTransformer(output_distribution='normal')
+# np_normalizer = np_normalizer.fit(Y)
+# normalizer = TorchQuantileTransformer('normal', np_normalizer.references_,np_normalizer.quantiles_)
+
 X = (X - X.mean())/X.std()
 
 
@@ -112,15 +117,15 @@ Y = Y[train_idxs]
 print('Using {} / {} downsampling'.format(len(train_idxs), Y_all.shape[0]))
 
 # net = MLP(3, 256, 1, 5, 'gelu')
-# net = FourierMLP(3, n_hidden=256, output_size=1, n_layers=4, act='relu',fourier_dim=128,sigma=32)
-net = Siren(in_features=3, out_features=1, hidden_layers=4,hidden_features=256,outermost_linear=True)
+net = FourierMLP(3, n_hidden=384, output_size=1, n_layers=4, act='gelu',fourier_dim=128,sigma=128,type='exp')
+# net = Siren(in_features=3, out_features=1, hidden_layers=4,hidden_features=256,outermost_linear=True)
 
 
 # post_act = PostAct('exp')
 # net = nn.Sequential(net, post_act)
 
 # 假设 net, X, Y 已经定义
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 cm = plt.cm.get_cmap('rainbow')
 
 net = net.to(device)
@@ -135,27 +140,38 @@ ymin, ymax = Y.min(), Y.max()
 
 criterion = nn.MSELoss()
 lp_rel_err = lambda x,y,p: ((np.abs(x-y)**p).sum()/(np.abs(y)**p).sum())**(1/p)
-optimizer = optim.AdamW(net.parameters(), lr=1e-4, betas=(0.9,0.999))    # 3d problem, 1e-3 does not converge good for Siren
 
-num_epochs = 10000
-plot_interval = num_epochs //5
+num_epochs = 20000
+plot_interval = num_epochs //10
 losses = []
+
+optimizer = optim.AdamW(net.parameters(), lr=1e-3, betas=(0.9,0.9))    # 3d problem, 1e-3 does not converge good for Siren
+# scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=1e-3, div_factor=1e4, pct_start=0.2, final_div_factor=1e4, steps_per_epoch=1, epochs=num_epochs)
+# scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lambda steps: min((steps + 1) / (2000),np.power(2000  / float(steps + 1),0.5)))
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5000,gamma=0.5)
+
 
 for epoch in range(num_epochs):
     # 梯度清零
     optimizer.zero_grad()
 
     # 前向传播
-    outputs = net(X)
+
+    ### stochastic training
+    train_ids = torch.randperm(X.shape[0])[:20000]
+    X_, Y_ = X[train_ids], Y[train_ids]
+    outputs = net(X_)
 
     # 计算损失
-    loss = criterion(outputs, Y)
+    loss = criterion(outputs, Y_)
 
     # 反向传播
     loss.backward()
 
     # 更新权重
     optimizer.step()
+    if scheduler:
+        scheduler.step()
 
     losses.append(loss.item())
 
@@ -213,15 +229,17 @@ for epoch in range(num_epochs):
             if shared_colorbar:
                 cbar_ax = plt.subplot(gs[2])
             scatters = []
-
+            elev,azim = 90*np.random.rand(), 360* np.random.rand()
             sc1 = ax0.scatter(X_np[:, 0], X_np[:, 1], X_np[:, 2], c=Y_np, cmap=cm, s=2)
             ax0.set_title('True')
             scatters.append(sc1)
+            ax0.view_init(elev=elev, azim=azim)
+
 
             sc2 = ax1.scatter(X_np[:, 0], X_np[:, 1], X_np[:, 2], c=err, cmap=cm, s=2)
             ax1.set_title('Error')
             scatters.append(sc2)
-
+            ax1.view_init(elev=elev, azim=azim)
             ymin = np.min(Y_np)  # 请确保您已设置 ymin 和 ymax
             ymax = np.max(Y_np)
 

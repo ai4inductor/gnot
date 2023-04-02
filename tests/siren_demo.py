@@ -155,7 +155,6 @@ if __name__ == "__main__":
 
         # 前向传播
         outputs = net(X)
-
         # 计算损失
         loss = criterion(outputs, Y)
 

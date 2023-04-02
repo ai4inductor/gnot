@@ -7,6 +7,7 @@ import torch.nn.functional as F
 
 import dgl
 
+ACTIVATION = {'gelu':nn.GELU(),'tanh':nn.Tanh(),'sigmoid':nn.Sigmoid(),'relu':nn.ReLU(),'leaky_relu':nn.LeakyReLU(0.1),'softplus':nn.Softplus(),'ELU':nn.ELU()}
 
 '''
     A simple MLP class, includes at least 2 layers and n hidden layers
@@ -15,14 +16,8 @@ class MLP(nn.Module):
     def __init__(self, n_input, n_hidden, n_output, n_layers=1, act='gelu'):
         super(MLP, self).__init__()
 
-        if act == 'gelu':
-            self.act = nn.GELU()
-        elif act == "relu":
-            self.act = nn.ReLU()
-        elif act == 'tanh':
-            self.act = nn.Tanh()
-        elif act == "sigmoid":
-            self.act = nn.Sigmoid()
+        if act in ACTIVATION.keys():
+            self.act = ACTIVATION[act]
         else:
             raise NotImplementedError
         self.n_input = n_input
@@ -73,7 +68,7 @@ class MLPNOScatter(nn.Module):
 
 
 class FourierMLP(nn.Module):
-    def __init__(self, space_dim=2, theta_dim=1, output_size=3, n_layers=2, n_hidden=64, act='gelu',fourier_dim=0, sigma=1):
+    def __init__(self, space_dim=2, theta_dim=1, output_size=3, n_layers=2, n_hidden=64, act='gelu',fourier_dim=0,type='gaussian', sigma=1):
         super(FourierMLP, self).__init__()
         self.space_dim = space_dim
         self.theta_dim = theta_dim
@@ -83,12 +78,19 @@ class FourierMLP(nn.Module):
         self.act = act
         self.sigma = sigma
         self.fourier_dim = fourier_dim
-
+        self.type = type
 
         if fourier_dim > 0:
-            self.B = nn.Parameter(sigma *torch.randn([space_dim, fourier_dim]),requires_grad=False)
+            if self.type == 'gaussian':
+                self.B = nn.Parameter(sigma *torch.randn([space_dim, fourier_dim]),requires_grad=False)
+                freq_dim = fourier_dim
+            elif self.type == 'exp':
+                freqs = torch.logspace(np.log10(1/2048),np.log10(2048),fourier_dim//space_dim)
+                # freqs = 2**torch.arange(-5,5)
+                self.B = nn.Parameter(freqs,requires_grad=False)
+                freq_dim = len(freqs)*space_dim
             self.theta_mlp = MLP(theta_dim, fourier_dim, fourier_dim, n_layers=3, act=act)
-            self.mlp = MLP(2*fourier_dim + fourier_dim, n_hidden, output_size, n_layers=n_layers,act=act)
+            self.mlp = MLP(2*freq_dim + fourier_dim, n_hidden, output_size, n_layers=n_layers,act=act)
         else:
             self.mlp = MLP(space_dim + theta_dim, n_hidden, output_size, n_layers=n_layers,act=act)
 
@@ -111,7 +113,12 @@ class FourierMLP(nn.Module):
             raise ValueError
         if self.fourier_dim > 0:
             theta_feats = self.theta_mlp(theta)
-            x = torch.cat([torch.sin(2*np.pi*x @ self.B), torch.cos(2*np.pi * x @ self.B), theta_feats],dim=1)
+            if self.type == 'gaussian':
+                x = torch.cat([torch.sin(2*np.pi*x @ self.B), torch.cos(2*np.pi * x @ self.B), theta_feats],dim=1)
+            elif self.type == 'exp':
+                x = torch.einsum('ij,k->ijk', x, self.B).reshape(x.shape[0], -1)
+                x = torch.cat([torch.sin(2*np.pi*x ), torch.cos(2*np.pi * x), theta_feats],dim=1)
+
         else:
             x = torch.cat([x, theta],dim=1)
 

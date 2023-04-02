@@ -154,7 +154,7 @@ def get_model(args):
         return MLPNOScatter(input_size=trunk_size + theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers)
 
     elif args.model_name == "FourierMLP":
-        return FourierMLP(space_dim=args.space_dim, theta_dim= theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers, fourier_dim=args.hfourier_dim, sigma=args.sigma)
+        return FourierMLP(space_dim=args.space_dim, theta_dim= theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers, fourier_dim=args.hfourier_dim, sigma=args.sigma,type=args.type)
 
 
 

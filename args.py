@@ -105,8 +105,9 @@ def get_args():
     # GPT
     # parser.add_argument('--subsampled-len',type=int, default=256)
     parser.add_argument('--attn-type',type=str, default='linear', choices=['random','linear','gated','hydra','kernel'])
-    parser.add_argument('--hfourier-dim',type=int,default=128)
+    parser.add_argument('--hfourier-dim',type=int,default=96)
     parser.add_argument('--sigma',type=float, default=2**3)
+    parser.add_argument('--type',type=str, default='exp',choices=['gaussian','exp'])
 
     # GNOT
     parser.add_argument('--n-experts',type=int, default=1)

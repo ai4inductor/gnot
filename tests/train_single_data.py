@@ -64,8 +64,8 @@ X = torch.tanh(X)
 Y = normalizer.transform(Y,inverse=False)
 # Y = (Y-Y.mean())/Y.std()
 # net = MLP(2, 64, 1, 5, 'relu')
-# net = FourierMLP(2, n_hidden=128, output_size=1, n_layers=5, act='relu',fourier_dim=128,sigma=10)
-net = Siren(in_features=2, out_features=1, hidden_layers=4,hidden_features=128,outermost_linear=True)
+net = FourierMLP(2, n_hidden=128, output_size=1, n_layers=5, act='relu',fourier_dim=128,sigma=10,type='exp')
+# net = Siren(in_features=2, out_features=1, hidden_layers=4,hidden_features=128,outermost_linear=True)
 
 
 # 假设 net, X, Y 已经定义
@@ -81,7 +81,7 @@ ymin, ymax = Y.min(), Y.max()
 
 criterion = nn.MSELoss()
 lp_rel_err = lambda x,y,p: ((np.abs(x-y)**p).sum()/(np.abs(y)**p).sum())**(1/p)
-optimizer = optim.Adam(net.parameters(), lr=1e-4, betas=(0.99,0.99))
+optimizer = optim.Adam(net.parameters(), lr=1e-4, betas=(0.9,0.99))
 
 num_epochs = 10000
 plot_interval = num_epochs //5
