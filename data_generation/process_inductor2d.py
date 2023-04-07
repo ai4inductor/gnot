@@ -85,7 +85,7 @@ def del_duplicate_inductor2d(device):
 
 
 def del_duplicate_inductor2d_bosch():
-    train_path ='./../data/inductor2d_bosch_train.pkl'
+    train_path ='./../data/inductor2d_bosch_train.pkl'  ### moved to gnot released version
     test_path = './../data/inductor2d_bosch_test.pkl'
     train_save_path = './../data/inductor2d_bosch_nodup_train.pkl'
     test_save_path = './../data/inductor2d_bosch_nodup_test.pkl'

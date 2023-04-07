@@ -87,9 +87,17 @@
 #CUDA_VISIBLE_DEVICES="6"   accelerate launch --multi_gpu --main_process_port 5006  train_scatter_parallel.py --gpu 3 --dataset inductor2d_b --use-normalizer unit  --normalize_x unit --component all --comment multi  --loss-name rel2 --epochs 2000 --batch-size 4 --scatter-batch-size 40000 --model-name MLP_s --optimizer AdamW --weight-decay 0.00005   --lr 0.001 --lr-method cycle --lr-step-size 100 --grad-clip 1000.0 --hfourier-dim 0 --sigma 4  --n-hidden 256 --n-layers 5  --use-tb 1    2>&1 & sleep 20s
 
 
+
+#### SOTA or frequently used experiments
+#python train.py --gpu 1 --dataset ns2d_4ball --use-normalizer unit  --normalize_x unit --component all --comment rel2  --loss-name rel2 --epochs 500 --batch-size 4 --scatter-batch-size 40000 --model-name CGPT --optimizer AdamW --weight-decay 0.0   --lr 0.001 --lr-method cycle --lr-step-size 100 --grad-clip 1000.0 --hfourier-dim 0 --sigma 0.1  --n-hidden 128 --n-layers 3  --use-tb 1    2>&1 & sleep 20s
+
+#python train_scatter.py --gpu 0 --dataset ns2d_4ball --use-normalizer unit  --normalize_x unit --component all --comment rel2  --loss-name rel2 --epochs 500 --batch-size 4 --scatter-batch-size 40000 --model-name MLP_s --optimizer AdamW --weight-decay 0.0   --lr 0.001 --lr-method cycle --lr-step-size 100 --grad-clip 1000.0 --hfourier-dim 0 --sigma 0.1  --n-hidden 256 --n-layers 5  --use-tb 1    2>&1 & sleep 20s
+#python train_scatter.py --gpu 2 --dataset inductor2d_b --use-normalizer unit  --normalize_x unit --component all --comment rel2  --loss-name rel2 --epochs 500 --batch-size 4 --scatter-batch-size 40000 --model-name MLP_s --optimizer AdamW --weight-decay 0.0   --lr 0.001 --lr-method cycle --lr-step-size 100 --grad-clip 1000.0 --hfourier-dim 0 --sigma 0.1  --n-hidden 256 --n-layers 5  --use-tb 1    2>&1 & sleep 20s
+
+
 ####### inductor3d small
 #python train_scatter.py --gpu 1 --dataset inductor3d_A1 --use-normalizer unit  --normalize_x unit --component all --comment rel2  --loss-name rel2 --epochs 500 --scatter-batch-size 40000 --model-name MLP_s --optimizer AdamW --weight-decay 0.00005   --lr 0.001 --lr-method cycle --lr-step-size 100 --grad-clip 1000.0 --hfourier-dim 0 --sigma 4  --n-hidden 256 --n-layers 5  --use-tb 1    2>&1 & sleep 20s
-python train_scatter.py --gpu 2 --dataset inductor3d_A1 --use-normalizer unit  --normalize_x unit --component all --comment rel2  --loss-name rel2 --epochs 500 --scatter-batch-size 40000 --model-name FourierMLP --optimizer AdamW --weight-decay 0.00005   --lr 0.001 --lr-method cycle --lr-step-size 100 --grad-clip 1000.0 --hfourier-dim 128 --sigma 4 --type exp --n-hidden 384 --n-layers 6  --use-tb 1    2>&1 & sleep 20s
+#python train_scatter.py --gpu 2 --dataset inductor3d_A1 --use-normalizer unit  --normalize_x unit --component all --comment rel2  --loss-name rel2 --epochs 500 --scatter-batch-size 40000 --model-name FourierMLP --optimizer AdamW --weight-decay 0.00005   --lr 0.001 --lr-method cycle --lr-step-size 100 --grad-clip 1000.0 --hfourier-dim 128 --sigma 4 --type exp --n-hidden 384 --n-layers 6  --use-tb 1    2>&1 & sleep 20s
 
 ### train 2d with 30 examples
 #python train_scatter.py --gpu 0 --dataset inductor2d_b --use-normalizer unit  --normalize_x unit --component all --comment 30samples --train-num 30  --loss-name rel2 --epochs 250 --scatter-batch-size 40000 --model-name MLP_s --optimizer AdamW --weight-decay 0.00005   --lr 0.001 --lr-method cycle --lr-step-size 100 --grad-clip 1000.0 --hfourier-dim 128 --sigma 4  --n-hidden 256 --n-layers 10  --use-tb 1    2>&1 & sleep 20s
@@ -98,3 +106,7 @@ python train_scatter.py --gpu 2 --dataset inductor3d_A1 --use-normalizer unit  -
 
 ### train with exp fourier features
 #python train_scatter.py --gpu 1 --dataset inductor2d_b --use-normalizer unit  --normalize_x unit --component all --comment exp  --loss-name rel2 --epochs 1000 --batch-size 4 --scatter-batch-size 40000 --model-name FourierMLP --optimizer AdamW --weight-decay 0.0   --lr 0.001 --lr-method cycle --lr-step-size 100 --grad-clip 1000.0 --hfourier-dim 128 --sigma 16 --type exp  --n-hidden 256 --n-layers 5  --use-tb 1    2>&1 & sleep 20s
+
+### FNO
+python train.py --gpu 7 --dataset inductor2d_b --use-normalizer unit  --normalize_x unit --component all --comment rel2  --loss-name rel2 --epochs 500 --batch-size 4 --scatter-batch-size 40000 --model-name GeoFNO --optimizer CAdam --weight-decay 0.000005   --lr 0.001 --lr-method step --lr-step-size 100 --grad-clip 1000.0 --hfourier-dim 0 --sigma 0.1  --n-hidden 64 --modes 16  --use-tb 1    2>&1 & sleep 20s
+#python train.py --gpu 2 --dataset ns2d_4ball --use-normalizer unit  --normalize_x unit --component all --comment rel2  --loss-name rel2 --epochs 500 --batch-size 4 --scatter-batch-size 40000 --model-name GeoFNO --optimizer AdamW --weight-decay 0.0   --lr 0.001 --lr-method cycle --lr-step-size 100 --grad-clip 1000.0 --hfourier-dim 0 --sigma 0.1  --n-hidden 48 --modes 16  --use-tb 1    2>&1 & sleep 20s

@@ -27,6 +27,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 from gnot.utils import TorchQuantileTransformer, UnitTransformer, PointWiseUnitTransformer, MultipleTensors, MinMaxTransformer
 from gnot.models.cgpt import CGPTNO
+from gnot.models.geofno import FNO2d
 from gnot.models.mmgpt import GNOT
 from gnot.models.MLP import MLPNO, MLPNOScatter, FourierMLP
 
@@ -144,6 +145,10 @@ def get_model(args):
 
         return GNOT(trunk_size=trunk_size + theta_size,branch_sizes=args.branch_sizes, output_size=output_size,n_layers=args.n_layers, n_hidden=args.n_hidden, n_head=args.n_head,attn_type=args.attn_type, ffn_dropout=args.ffn_dropout, attn_dropout=args.attn_dropout, mlp_layers=args.mlp_layers, act=args.act,horiz_fourier_dim=args.hfourier_dim,space_dim=args.space_dim,n_experts=args.n_experts, n_inner=args.n_inner)
 
+    elif args.model_name == 'GeoFNO':
+        if args.space_dim != 2:
+            raise NotImplementedError
+        return FNO2d(modes1=args.modes, modes2= args.modes,width=args.n_hidden,in_channels= trunk_size,out_channels= output_size,code_dim=theta_size, s1=2*args.n_hidden, s2=2*args.n_hidden)
 
     elif args.model_name == 'MLP':
         return MLPNO(input_size=trunk_size + theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers)
@@ -155,6 +160,7 @@ def get_model(args):
 
     elif args.model_name == "FourierMLP":
         return FourierMLP(space_dim=args.space_dim, theta_dim= theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers, fourier_dim=args.hfourier_dim, sigma=args.sigma,type=args.type)
+
 
 
 

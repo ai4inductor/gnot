@@ -301,7 +301,7 @@ if __name__ == "__main__":
     lr = args.lr
 
     if args.optimizer == 'Adam':
-        optimizer = Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay)
     elif args.optimizer == "AdamW":
         # if hasattr(model, 'configure_optimizers'):
         # print('Using model specified configured optimizer')
@@ -309,6 +309,10 @@ if __name__ == "__main__":
         # else:
         # optimizer = AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay)
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay,betas=(0.9, 0.999))
+    elif args.optimizer == 'CAdam':
+        optimizer = Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay, betas=(0.9, 0.999))
+    elif args.optimizer == "CAdamW":
+        optimizer = AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay, betas=(0.9, 0.999))
     else:
         raise NotImplementedError
 

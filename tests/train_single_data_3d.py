@@ -5,6 +5,7 @@ import torch
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
+import meshio
 import matplotlib
 from scipy.spatial import cKDTree
 from sklearn.preprocessing import QuantileTransformer
@@ -19,17 +20,35 @@ from gnot.tests.siren_demo import Siren
 # data = np.load('OneCase3D_2a.npz')
 # x,y,z, v = data['xxa'], data['yya'], data['zza'], data['vva']
 #
-# # data = np.load('OneCase3D_2b.npz')
-# # x,y,z, v = data['xxb'], data['yyb'], data['zzb'], data['vvb']
+# data = np.load('OneCase3D_2b.npz')
+# x,y,z, v = data['xxb'], data['yyb'], data['zzb'], data['vvb']
 # X = np.stack([x,y,z],axis=-1)
 # Y = v[...,None]
 
-data_path = './../data/inductor3d_A1_test.pkl'
-dataset = pickle.load(open(data_path,'rb'))
+# data_path = './../data/inductor3d_A1_test.pkl'
+# dataset = pickle.load(open(data_path,'rb'))
 
-idx = 0
-component = 1
-X, Y, theta, _ = dataset[idx]
+# idx = 0
+# component = 1
+# X, Y, theta, _ = dataset[idx]
+
+
+# tidx= 1
+# data = np.load('./../data/inductor3d_test/Inductor3D_BVector_t{}.npz'.format(tidx-1))
+# x,y,z,v = data['xx{}'.format(tidx)], data['yy{}'.format(tidx)], data['zz{}'.format(tidx)], data['vvx{}'.format(tidx)]
+
+# data = np.load('./../data/inductor3d_test/Inductor3D_LossDensity.npz')
+# x,y,z,v = data['xx1'], data['yy1'], data['zz1'], data['vv1']
+# X = np.stack([x,y,z],axis=-1)
+# Y = v[...,None]
+
+# data = meshio.read('./../data/inductor3d_test/inductor3d_output.vtu')
+# X, Y = data.points, data.point_data['Bx'][...,None]
+# x, y, z, v = X[:,0],X[:,1],X[:,2], Bx
+
+data = np.loadtxt('./../data/inductor3d_test/capacitance3d.txt')
+X, Y = data[:,:3], data[:,3:4]
+
 
 
 
@@ -89,6 +108,7 @@ X = torch.from_numpy(X).float()
 Y = torch.from_numpy(Y).float()
 
 # Y = 10**Y
+# Y = torch.log10(Y)
 
 
 
@@ -117,7 +137,7 @@ Y = Y[train_idxs]
 print('Using {} / {} downsampling'.format(len(train_idxs), Y_all.shape[0]))
 
 # net = MLP(3, 256, 1, 5, 'gelu')
-net = FourierMLP(3, n_hidden=384, output_size=1, n_layers=4, act='gelu',fourier_dim=128,sigma=128,type='exp')
+net = FourierMLP(3, n_hidden=384, output_size=1, n_layers=3, act='gelu',fourier_dim=128,sigma=128,type='exp')
 # net = Siren(in_features=3, out_features=1, hidden_layers=4,hidden_features=256,outermost_linear=True)
 
 

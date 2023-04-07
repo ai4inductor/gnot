@@ -1,4 +1,4 @@
-#!/usr/bin/env python  
+#!/usr/bin/env python
 #-*- coding:utf-8 _*-
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,13 +19,10 @@ import pickle
 # data = np.load('./../data/inductor3d_test/Inductor3D_LossDensity.npz')
 # x,y,z,v = data['xx1'], data['yy1'], data['zz1'], data['vv1']
 
-data = meshio.read('./../data/inductor3d_test/inductor3d_output.vtu')
-X, Bx = data.points, data.point_data['Bx']
-x, y, z, v = X[:,0],X[:,1],X[:,2], Bx
-
-# idx =8
-# data = pickle.load(open('./../data/inductor3d_B1_train.pkl','rb'))[idx]
-# x, y, z, v = data[0][:,0], data[0][:,1], data[0][:,2], data[1]
+# data = meshio.read('./../data_generation/heatsink_test.vtu')
+data = meshio.read('./../data/heatsink3d/heatsink3d_2.vtu')
+X, v = data.points, data.point_data['u']
+x, y, z = X[:,0],X[:,1],X[:,2]
 
 
 def plot_3d_scatter_subplot(ax, x, y, z, v, elev=30, azim=30):

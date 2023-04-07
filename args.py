@@ -11,7 +11,7 @@ import argparse
 def get_args():
     parser = argparse.ArgumentParser(description='GNOT for operator learning')
     parser.add_argument('--dataset',type=str,
-                        default='inductor3d_A1',
+                        default='inductor2d_b',
                         choices = ['ns2d_4ball','inductor2d','inductor2d_b','inductor3d_A1','inductor3d_B1'])
 
     parser.add_argument('--space-dim',type=int, default=0,
@@ -44,7 +44,7 @@ def get_args():
 
     parser.add_argument('--epochs', type=int, default=500, metavar='N',
                         help='number of epochs to train (default: 100)')
-    parser.add_argument('--optimizer', type=str, default='AdamW',choices=['Adam','AdamW'])
+    parser.add_argument('--optimizer', type=str, default='CAdamW',choices=['Adam','AdamW','CAdam','CAdamW'])
 
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help='max learning rate (default: 0.001)')
@@ -79,9 +79,9 @@ def get_args():
                         choices=['rel2','rel1', 'l2', 'l1'])
     #### public model architecture parameters
 
-    parser.add_argument('--model-name', type=str, default='MLP_s',
-                        choices=['CGPT', 'GNOT', 'MLP','MLP_s','FourierMLP'])
-    parser.add_argument('--n-hidden',type=int, default=128)
+    parser.add_argument('--model-name', type=str, default='GeoFNO',
+                        choices=['CGPT', 'GNOT','GeoFNO', 'MLP','MLP_s','FourierMLP'])
+    parser.add_argument('--n-hidden',type=int, default=64)
     parser.add_argument('--n-layers',type=int, default=5)
 
     #### MLP/DeepONet parameters
@@ -114,7 +114,8 @@ def get_args():
     parser.add_argument('--branch-sizes',nargs="*",type=int, default=[2])
     parser.add_argument('--n-inner',type=int, default=4)
 
-
+    # FNO
+    parser.add_argument('--modes',type=int, default=12)
 
     # performer
     # parser.add_argument('--dim-head',type=float, default=64)
