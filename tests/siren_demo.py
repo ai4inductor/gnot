@@ -11,7 +11,7 @@ import os
 from PIL import Image
 from torchvision.transforms import Resize, Compose, ToTensor, Normalize
 import numpy as np
-import skimage
+
 import matplotlib.pyplot as plt
 
 import time

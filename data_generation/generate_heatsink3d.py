@@ -16,6 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import argparse
 import jpype
+from scipy.spatial import cKDTree
 pi = np.pi
 
 
@@ -57,6 +58,27 @@ def generate_new_doe(pymodel, u):
     pymodel.parameter('P0',str(u[7])+'[W]')
 
     return pymodel
+
+
+def del_duplicate_points_data(X, Y, threshold=1e-9):
+    kdtree = cKDTree(X)
+
+    # 查询 k-d 树以找到距离小于阈值的点对
+    pairs = kdtree.query_pairs(threshold)
+
+    # 提取要剔除的点的索引
+    indices_to_remove = set()
+    for pair in pairs:
+        indices_to_remove.add(pair[0])
+        indices_to_remove.add(pair[1])
+
+    duplicate_ids = list(indices_to_remove)
+    indices_to_keep = list(set(range(len(X))) - set(duplicate_ids))
+
+    print(' delete points {} / {}'.format(len(duplicate_ids), len(X)))
+
+    return X[indices_to_keep], Y[indices_to_keep]
+
 
 
 
@@ -108,71 +130,56 @@ def generate_heatsink3d_data(init, end):
     return
 
 
-def merge_data_heatsink(N):
+def merge_data_heatsink(N, with_p=False):
     data_prefix = './../data/'
     ### set random u_p
     # u_p = np.zeros_like(u_p)
     dataset = []
 
+    params = np.loadtxt('./heatsink3d_params.txt')
+
     for i in range(N):
         time_i = time.time()
-        if os.path.exists(data_prefix + 'heatsink/heatsink_{}.vtu'.format(i+1)):
-            data_all = meshio.read(data_prefix + 'heatsink/heatsink_{}.vtu'.format(i+1))
-            data_in = meshio.read(data_prefix + 'heatsink/heatsink_{}_b.vtu'.format(i+1))
+        if os.path.exists(data_prefix + 'heatsink3d/heatsink3d_{}.vtu'.format(i+1)):
+            data_all = meshio.read(data_prefix + 'heatsink3d/heatsink3d_{}.vtu'.format(i+1))
         else:
             print('Task @ {} failded'.format(i+1))
             continue
 
         x_all = data_all.points[:,:3]
-        T_all, u_all, v_all, w_all, p_all = data_all.point_data['temp'], data_all.point_data["ux" ], data_all.point_data['uy'], data_all.point_data['uz'], data_all.point_data['p']
-        y_all = np.stack([T_all, u_all, v_all, w_all, p_all],axis=-1)
-
+        T_all, u_all, v_all, w_all, p_all = data_all.point_data['T'], data_all.point_data["u" ], data_all.point_data['v'], data_all.point_data['w'], data_all.point_data['p']
+        if with_p:
+            y_all = np.stack([T_all, u_all, v_all, w_all, p_all],axis=-1)
+        else:
+            y_all = np.stack([T_all, u_all, v_all, w_all],axis=-1)
         ### clear NaN values
         y_all[np.isnan(y_all)] = 0
 
-        x_in = data_in.points[:,:3]
-        y_in = data_in.point_data["ux"][...,None]
-        x_in = np.concatenate([x_in, y_in],axis=1)
+        u_p = params[i]
 
+        n_orig = x_all.shape[0]
+        if with_p:
+            #### delete duplicate points
+            x_all, y_all = del_duplicate_points_data(x_all, y_all, 1e-7)
+            n_del = n_orig - x_all.shape[0]
+        else:
+            n_del = 0
 
-        x_in[np.isnan(x_in)] = 0
-
-        #### comment these two lines for clean dataset
-        if x_in.shape[0] == 85:
-            print('{} uncleared'.format(i))
-            continue
-        u_p = np.zeros(1)
-
-
-
-        #### buid nx graph
-        g = nx.Graph()
-        g.add_nodes_from(range(x_all.shape[0]))
-
-        ###### Do Not add edges
-        #### get edges, now only supports triangle mesh
-        # edges = vtk_data.cells_dict['triangle']
-        # g.add_edges_from(edges[:, [0, 1]])
-        # g.add_edges_from(edges[:, [0, 2]])
-        # g.add_edges_from(edges[:, [1, 2]])
-        # g.add_edges_from([[_, _] for _ in range(x_2d.shape[0])])   #### add self loop
-
-        #### current data fields are u, v and p
-
-        #### load boundary data, omit u,v,p, only save boundary coordinates
 
         # dataset.append([x_all, y_all, u_p, (x_b, x_in, x_d1, x_d2, x_d3)])
-        dataset.append([x_all, y_all, u_p, (x_in,)])
+        dataset.append([x_all, y_all, u_p, None])
 
-        print('task @ {} num nodes {} edges {} with {}s'.format(i+1, x_all.shape[0], g.number_of_edges(), time.time()-time_i))
+
+        print('task @ {} num nodes {} del points {}/{}  with {}s'.format(i+1, x_all.shape[0], n_del,n_orig, time.time()-time_i))
 
     print('Total {} samples'.format(len(dataset)))
-    pickle.dump(dataset[:int(0.8*len(dataset))], open(data_prefix +'heatsink_{}_train.pkl'.format(N),'wb'))
-    pickle.dump(dataset[int(0.8*len(dataset)):], open(data_prefix + 'heatsink_{}_test.pkl'.format(N), "wb"))
+    pickle.dump(dataset[:int(10/11*len(dataset))], open(data_prefix +'heatsink3d_{}_train.pkl'.format(N),'wb'))
+    pickle.dump(dataset[int(10/11*len(dataset)):], open(data_prefix + 'heatsink3d_{}_test.pkl'.format(N), "wb"))
     return
 
 
 
 if __name__ == "__main__":
     # generate_params(1100)
-    generate_heatsink3d_data(args.init,args.end)
+    # generate_heatsink3d_data(args.init,args.end)
+    merge_data_heatsink(1100)

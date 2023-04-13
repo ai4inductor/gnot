@@ -7,10 +7,11 @@ import torch.nn as nn
 import dgl
 import matplotlib.pyplot as plt
 import matplotlib
+import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from dgl.dataloading import GraphDataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
-from gnot.utils import get_seed, get_num_params
+from gnot.utils import get_seed, get_num_params, clear_dict_keys
 from gnot.args import get_args
 from gnot.data_utils import get_dataset, get_model, get_loss_func, get_scatter_dataset, ScatterLpRelLoss
 from gnot.train import validate_epoch
@@ -48,10 +49,11 @@ if __name__ == "__main__":
     model = get_model(args)
 
 
-    model.load_state_dict(model_dict)
+
+    model.load_state_dict(clear_dict_keys(model_dict))
 
     if args.component == 'all':
-        args.component = 0
+        args.component = 3
         vis_component = args.component
     else:
         args.component = int(args.component)
@@ -109,61 +111,32 @@ if __name__ == "__main__":
 
 
 
-        #### choose one to visualize
-        cm = plt.cm.get_cmap('rainbow')
-        x = x.numpy()
-        plot_heatmap(x[:,0], x[:,1], pred,cmap=cm,show=True)
-        plot_heatmap(x[:,0], x[:,1], target,cmap=cm,show=True)
 
 
 
-        def plot_scatters(x, pred, target, cm='rainbow'):
-            # 假设 x, pred, target, err 已经定义
+        from mpl_toolkits.mplot3d import Axes3D
+
+
+
+        def plot_scatters3(x, pred, target, cm='rainbow',elev=None, azim=None):
             err = pred - target
-            # fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharex=True, sharey=True)
-            # scatters = []
-            #
-            # sc1 = axes[0].scatter(x[:, 0], x[:, 1], c=pred, cmap=cm, s=2)
-            # scatters.append(sc1)
-            # axes[0].set_xlabel('Pred')
-            #
-            # sc2 = axes[1].scatter(x[:, 0], x[:, 1], c=target, s=2, cmap=cm)
-            # scatters.append(sc2)
-            # axes[1].set_xlabel('Target')
-            #
-            # sc3 = axes[2].scatter(x[:, 0], x[:, 1], c=err, cmap=cm, s=2)
-            # scatters.append(sc3)
-            # axes[2].set_xlabel('Error')
-            #
-            # # 找到所有子图中的最小值和最大值，以便 colorbar 可以覆盖整个范围
-            # vmin = min([sc.get_array().min() for sc in scatters])
-            # vmax = max([sc.get_array().max() for sc in scatters])
-            #
-            # # 对每个子图的颜色映射进行归一化，以便它们可以共享 colorbar
-            # norm = matplotlib.colors.Normalize(vmin=vmin, vmax=vmax)
-            # for sc in scatters[:2]:
-            #     sc.set_norm(norm)
-            #
-            # # 在第二张图和第三张图之间添加一个 colorbar
-            # cbar_ax = fig.add_axes([0.4, 0.15, 0.02, 0.7])  # 调整 colorbar 位置和尺寸
-            # fig.colorbar(scatters[0], cax=cbar_ax)
-            #
-            # # 为第三张图创建单独的 colorbar
-            # fig.colorbar(sc3, ax=axes[2])
-            #
-            # plt.show()
+            if elev is None:
+                elev,azim = 90*np.random.rand(), 360* np.random.rand()
 
-            fig = plt.figure(figsize=(15, 5))
 
-            gs = GridSpec(1, 5, width_ratios=[1, 1, 0.03, 1, 0.03],wspace=0.4)
+            fig = plt.figure(figsize=(20, 8))
 
-            ax1 = plt.subplot(gs[0])
-            sc1 = ax1.scatter(x[:, 0], x[:, 1], c=pred, cmap=cm, s=2)
+            gs = GridSpec(1, 5, width_ratios=[1, 1, 0.03, 1, 0.03], wspace=0.4)
+
+            ax1 = fig.add_subplot(gs[0], projection='3d')
+            sc1 = ax1.scatter(x[:, 0], x[:, 1], x[:, 2], c=pred, cmap=cm, s=2)
             ax1.set_xlabel('Pred')
+            ax1.view_init(elev=elev, azim=azim)
 
-            ax2 = plt.subplot(gs[1], sharex=ax1, sharey=ax1)
-            sc2 = ax2.scatter(x[:, 0], x[:, 1], c=target, s=2, cmap=cm)
+            ax2 = fig.add_subplot(gs[1], projection='3d', sharex=ax1, sharey=ax1, sharez=ax1)
+            sc2 = ax2.scatter(x[:, 0], x[:, 1], x[:, 2], c=target, s=2, cmap=cm)
             ax2.set_xlabel('Target')
+            ax2.view_init(elev=elev, azim=azim)
 
             vmin = min([sc1.get_array().min(), sc2.get_array().min()])
             vmax = max([sc1.get_array().max(), sc2.get_array().max()])
@@ -172,21 +145,23 @@ if __name__ == "__main__":
             sc1.set_norm(norm)
             sc2.set_norm(norm)
 
-            cbar_ax1 = plt.subplot(gs[2])
+            cbar_ax1 = fig.add_subplot(gs[2])
             fig.colorbar(sc1, cax=cbar_ax1)
 
-            ax3 = plt.subplot(gs[3], sharex=ax1, sharey=ax1)
-            sc3 = ax3.scatter(x[:, 0], x[:, 1], c=err, cmap=cm, s=2)
+            ax3 = fig.add_subplot(gs[3], projection='3d', sharex=ax1, sharey=ax1, sharez=ax1)
+            sc3 = ax3.scatter(x[:, 0], x[:, 1], x[:, 2], c=err, cmap=cm, s=2)
             ax3.set_xlabel('Error')
+            ax3.view_init(elev=elev, azim=azim)
 
-            cbar_ax2 = plt.subplot(gs[4])
+
+            cbar_ax2 = fig.add_subplot(gs[4])
             fig.colorbar(sc3, cax=cbar_ax2)
 
             plt.show()
 
 
-        plot_scatters(x, pred, target)
-        plot_scatters(x, ori_pred, ori_target)
+        plot_scatters3(x, pred, target)
+        plot_scatters3(x, ori_pred, ori_target)
 
 
 

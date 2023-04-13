@@ -11,43 +11,45 @@ import argparse
 def get_args():
     parser = argparse.ArgumentParser(description='GNOT for operator learning')
     parser.add_argument('--dataset',type=str,
-                        default='inductor2d_b',
-                        choices = ['ns2d_4ball','inductor2d','inductor2d_b','inductor3d_A1','inductor3d_B1'])
+                        default='heatsink3d',
+                        choices = ['ns2d_4ball','inductor2d','inductor2d_b','inductor3d_A1','inductor3d_B1','heatsink3d'])
 
     parser.add_argument('--space-dim',type=int, default=0,
                         help='If set to 0, auto search the first number in the dataset name as space dim')
 
     parser.add_argument('--component',type=str,
-                        default='all',)
+                        default=0,)
 
 
 
     parser.add_argument('--seed', type=int, default=2022, metavar='Seed',
                         help='random seed (default: 1127802)')
 
-    parser.add_argument('--gpu', type=int, default=1, help='gpu id')
+    parser.add_argument('--gpu', type=int, default=0, help='gpu id')
     parser.add_argument('--use-tb', type=int, default=0, help='whether use tensorboard')
-    parser.add_argument('--comment',type=str,default="",help="comment for the experiment")
+    parser.add_argument('--comment',type=str,default='',help="comment for the experiment")
 
     #### new add options
     parser.add_argument('--train-num', type=str, default='all')
     parser.add_argument('--test-num', type=str, default='all')
 
-    parser.add_argument('--sort-data',type=int, default=0)
+    parser.add_argument('--sort-data',type=int, default=1)
 
-    parser.add_argument('--normalize_x',type=str, default='minmax',
+    parser.add_argument('--normalize_x',type=str, default='unit',
                         choices=['none','minmax','unit'])
     parser.add_argument('--use-normalizer',type=str, default='unit',
                         choices=['none','minmax','unit','quantile'],
                         help = "whether normalize y")
 
 
-    parser.add_argument('--epochs', type=int, default=500, metavar='N',
+    parser.add_argument('--epochs', type=int, default=1000, metavar='N',
                         help='number of epochs to train (default: 100)')
-    parser.add_argument('--optimizer', type=str, default='CAdamW',choices=['Adam','AdamW','CAdam','CAdamW'])
+    parser.add_argument('--optimizer', type=str, default='AdamW',choices=['Adam','AdamW','CAdam','CAdamW'])
 
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help='max learning rate (default: 0.001)')
+    parser.add_argument('--beta1',type=float, default=0.9)
+    parser.add_argument('--beta2',type=float, default=0.999)
     parser.add_argument('--weight-decay',type=float,default=5e-6
                         )
     parser.add_argument('--grad-clip', type=str, default=1000.0
@@ -55,6 +57,8 @@ def get_args():
     #### full batch training
     parser.add_argument('--batch-size', type=int, default=4, metavar='bsz',
                         help='input batch size for training (default: 8)')
+    parser.add_argument('--max-nodes',type=int, default=20000,
+                        help='Max number of nodes per graph for full batch training, -1 for unrestricted')
     #### scatter training
     parser.add_argument('--scatter-batch-size',type=int,default=40000,
                         help='input batch size for scatter training')
@@ -71,7 +75,7 @@ def get_args():
 
     parser.add_argument('--lr-method',type=str, default='step',
                         choices=['cycle','step','warmup'])
-    parser.add_argument('--lr-step-size',type=int, default=50
+    parser.add_argument('--lr-step-size',type=int, default=500
                         )
     parser.add_argument('--warmup-epochs',type=int, default=50)
 
@@ -79,10 +83,11 @@ def get_args():
                         choices=['rel2','rel1', 'l2', 'l1'])
     #### public model architecture parameters
 
-    parser.add_argument('--model-name', type=str, default='GeoFNO',
-                        choices=['CGPT', 'GNOT','GeoFNO', 'MLP','MLP_s','FourierMLP'])
-    parser.add_argument('--n-hidden',type=int, default=64)
-    parser.add_argument('--n-layers',type=int, default=5)
+    parser.add_argument('--model-name', type=str, default='CGPT',
+                        choices=['CGPT', 'GNOT','GeoFNO', 'MLP','MLP_s','FourierMLP','PreFourierMLP'])
+
+    parser.add_argument('--n-hidden',type=int, default=256)
+    parser.add_argument('--n-layers',type=int, default=4)
 
     #### MLP/DeepONet parameters
     #### GNN parameters

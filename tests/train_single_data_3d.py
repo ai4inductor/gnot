@@ -46,10 +46,12 @@ from gnot.tests.siren_demo import Siren
 # X, Y = data.points, data.point_data['Bx'][...,None]
 # x, y, z, v = X[:,0],X[:,1],X[:,2], Bx
 
-data = np.loadtxt('./../data/inductor3d_test/capacitance3d.txt')
-X, Y = data[:,:3], data[:,3:4]
+# data = np.loadtxt('./../data/inductor3d_test/capacitance3d.txt')
+# X, Y = data[:,:3], data[:,3:4]
 
-
+data = meshio.read('./../data/heatsink3d/heatsink3d_12.vtu')
+X, Y =  data.points, data.point_data['T'][...,None]
+Y[np.isnan(Y)] = 0
 
 
 class PostAct(nn.Module):
@@ -100,8 +102,8 @@ duplicate_ids = fast_find_duplicate_or_close_points(X, 1e-10)
 
 indices_to_keep = list(set(range(len(X))) - set(duplicate_ids))
 
-print('delete points {} / {}'.format(len(X)-len(indices_to_keep),len(X)))
-X, Y = X[indices_to_keep], Y[indices_to_keep]
+# print('delete points {} / {}'.format(len(X)-len(indices_to_keep),len(X)))
+# X, Y = X[indices_to_keep], Y[indices_to_keep]
 
 
 X = torch.from_numpy(X).float()
@@ -136,8 +138,8 @@ X = X[train_idxs]
 Y = Y[train_idxs]
 print('Using {} / {} downsampling'.format(len(train_idxs), Y_all.shape[0]))
 
-# net = MLP(3, 256, 1, 5, 'gelu')
-net = FourierMLP(3, n_hidden=384, output_size=1, n_layers=3, act='gelu',fourier_dim=128,sigma=128,type='exp')
+# net = MLP(3, 256, 1, 4, 'gelu')
+net = FourierMLP(3, n_hidden=256, output_size=1, n_layers=3, act='gelu',fourier_dim=128,sigma=128,type='exp')
 # net = Siren(in_features=3, out_features=1, hidden_layers=4,hidden_features=256,outermost_linear=True)
 
 

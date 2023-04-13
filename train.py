@@ -50,7 +50,7 @@ EPOCH_SCHEDULERS = ['ReduceLROnPlateau', 'StepLR', 'MultiplicativeLR',
 
 
 
-def train(args, model,
+def train(args,  model,
           loss_func,
           metric_func,
           train_loader,
@@ -90,7 +90,7 @@ def train(args, model,
         torch.cuda.empty_cache()
         for batch in train_loader:
 
-            loss = train_batch(model, loss_func, batch, optimizer, lr_scheduler, device, grad_clip=grad_clip)
+            loss = train_batch( model, loss_func, batch, optimizer, lr_scheduler, device, grad_clip=grad_clip)
 
 
             loss = np.array(loss)
@@ -193,7 +193,7 @@ def train(args, model,
 
 
 # @timing
-def train_batch(model, loss_func, data, optimizer, lr_scheduler, device, grad_clip=0.999):
+def train_batch( model, loss_func, data, optimizer, lr_scheduler, device, grad_clip=0.999):
     optimizer.zero_grad()
 
     g, u_p, g_u = data
@@ -207,6 +207,7 @@ def train_batch(model, loss_func, data, optimizer, lr_scheduler, device, grad_cl
     y_pred, y = out.squeeze(), g.ndata['y'].squeeze()
     loss, reg,  _ = loss_func(g, y_pred, y)
     loss = loss + reg
+
     loss.backward()
     nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
     optimizer.step()
@@ -239,10 +240,14 @@ def validate_epoch(model, metric_func, valid_loader, device):
 
 if __name__ == "__main__":
     args = get_args()
+
+
     if not args.no_cuda and torch.cuda.is_available():
         device = torch.device('cuda:{}'.format(str(args.gpu)))
     else:
         device = torch.device("cpu")
+
+    print(device)
 
     kwargs = {'pin_memory': False} if args.gpu else {}
     get_seed(args.seed, printout=False)
@@ -301,18 +306,18 @@ if __name__ == "__main__":
     lr = args.lr
 
     if args.optimizer == 'Adam':
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay,betas=(args.beta1,args.beta2))
     elif args.optimizer == "AdamW":
         # if hasattr(model, 'configure_optimizers'):
         # print('Using model specified configured optimizer')
         # optimizer = model.configure_optimizers(lr=lr, weight_decay=args.weight_decay,betas=(0.9,0.999))
         # else:
         # optimizer = AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay)
-        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay,betas=(0.9, 0.999))
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay,betas=(args.beta1,args.beta2))
     elif args.optimizer == 'CAdam':
-        optimizer = Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay, betas=(0.9, 0.999))
+        optimizer = Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay,betas=(args.beta1,args.beta2))
     elif args.optimizer == "CAdamW":
-        optimizer = AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay, betas=(0.9, 0.999))
+        optimizer = AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay, betas=(args.beta1,args.beta2))
     else:
         raise NotImplementedError
 
@@ -327,11 +332,14 @@ if __name__ == "__main__":
     elif args.lr_method == 'warmup':
         print('Using warmup learning rate schedule')
         scheduler = LambdaLR(optimizer, lambda steps: min((steps+1)/(args.warmup_epochs * len(train_loader)), np.power(args.warmup_epochs * len(train_loader)/float(steps + 1), 0.5)))
-
+    else:
+        raise NotImplementedError
 
     time_start = time.time()
 
-    result = train(args, model, loss_func, metric_func,
+
+
+    result = train(args,  model, loss_func, metric_func,
                        train_loader, test_loader,
                        optimizer, scheduler,
                        epochs=epochs,

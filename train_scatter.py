@@ -83,7 +83,7 @@ def train(args,
 
     for epoch in range(start_epoch, end_epoch):
         model.train()
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
         train_idxs = torch.randperm(len(train_dataset)).split(args.scatter_batch_size)
         # train_idxs = torch.arange(len(train_dataset)).to(device).split(args.scatter_batch_size)
@@ -304,20 +304,20 @@ if __name__ == "__main__":
         log_path = None
 
     print(model)
-    # print(config)
+    print(args)
 
     epochs = args.epochs
     lr = args.lr
 
     if args.optimizer == 'Adam':
-        optimizer = Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay)
+        optimizer = Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay,betas=(args.beta1,args.beta2))
     elif args.optimizer == "AdamW":
         # if hasattr(model, 'configure_optimizers'):
         # print('Using model specified configured optimizer')
         # optimizer = model.configure_optimizers(lr=lr, weight_decay=args.weight_decay,betas=(0.9,0.999))
         # else:
         # optimizer = AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay)
-        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay, betas=(0.9, 0.999))
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay, betas=(args.beta1,args.beta2))
     else:
         raise NotImplementedError
 

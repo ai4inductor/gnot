@@ -25,11 +25,12 @@ from torch.nn.utils.rnn import pad_sequence
 
 
 
-from gnot.utils import TorchQuantileTransformer, UnitTransformer, PointWiseUnitTransformer, MultipleTensors, MinMaxTransformer
+
+from gnot.utils import TorchQuantileTransformer, UnitTransformer, PointWiseUnitTransformer, MultipleTensors, MinMaxTransformer, timing
 from gnot.models.cgpt import CGPTNO
 from gnot.models.geofno import FNO2d
 from gnot.models.mmgpt import GNOT
-from gnot.models.MLP import MLPNO, MLPNOScatter, FourierMLP
+from gnot.models.MLP import MLPNO, MLPNOScatter, FourierMLP, PreFourierMLP
 
 
 
@@ -55,6 +56,10 @@ def get_dataset(args):
             train_path = "./data/inductor3d_B1_train.pkl"
             test_path = "./data/inductor3d_B1_test.pkl"
 
+    elif args.dataset == 'heatsink3d':
+        train_path = "./data/heatsink3d_1100_train.pkl"
+        test_path = "./data/heatsink3d_1100_test.pkl"
+
     else:
         raise NotImplementedError
 
@@ -63,10 +68,10 @@ def get_dataset(args):
 
     train_dataset = MIODataset(train_path, name=args.dataset, train=True, train_num=args.train_num,sort_data=args.sort_data,
                                normalize_y=args.use_normalizer,
-                               normalize_x=args.normalize_x)
+                               normalize_x=args.normalize_x, max_sample_nodes=args.max_nodes)
     test_dataset = MIODataset(test_path, name=args.dataset, train=False, test_num=args.test_num,sort_data=args.sort_data,
                               normalize_y=args.use_normalizer,
-                              normalize_x=args.normalize_x, y_normalizer=train_dataset.y_normalizer,x_normalizer=train_dataset.x_normalizer,up_normalizer=train_dataset.up_normalizer)
+                              normalize_x=args.normalize_x, y_normalizer=train_dataset.y_normalizer,x_normalizer=train_dataset.x_normalizer,up_normalizer=train_dataset.up_normalizer, max_sample_nodes=args.max_nodes)
 
 
     args.dataset_config = train_dataset.config
@@ -95,6 +100,10 @@ def get_scatter_dataset(args):
         elif args.dataset == "inductor3d_B1":
             train_path = "./data/inductor3d_B1_train.pkl"
             test_path = "./data/inductor3d_B1_test.pkl"
+
+    elif args.dataset == 'heatsink3d':
+        train_path = "./data/heatsink3d_1100_train.pkl"
+        test_path = "./data/heatsink3d_1100_test.pkl"
 
     else:
         raise NotImplementedError
@@ -130,14 +139,14 @@ def get_model(args):
     # else:
     #     raise NotImplementedError
 
-    trunk_size, theta_size, output_size = args.dataset_config['input_dim'], args.dataset_config['theta_dim'], args.dataset_config['output_dim']
+    trunk_size, theta_size, output_size, branch_sizes = args.dataset_config['input_dim'], args.dataset_config['theta_dim'], args.dataset_config['output_dim'], args.dataset_config['branch_sizes']
     output_size = args.dataset_config['output_dim'] if args.component in ['all', 'all_reduce'] else 1
 
     ### full batch training
     if args.model_name == "CGPT":
         # trunk_size, branch_size, output_size = space_dim + u_p_dim, space_dim + g_u_dim, out_size
 
-        return CGPTNO(trunk_size=trunk_size + theta_size ,branch_sizes=args.branch_sizes, output_size=output_size,n_layers=args.n_layers, n_hidden=args.n_hidden, n_head=args.n_head,attn_type=args.attn_type, ffn_dropout=args.ffn_dropout, attn_dropout=args.attn_dropout, mlp_layers=args.mlp_layers, act=args.act,horiz_fourier_dim=args.hfourier_dim)
+        return CGPTNO(trunk_size=trunk_size + theta_size ,branch_sizes=branch_sizes, output_size=output_size,n_layers=args.n_layers, n_hidden=args.n_hidden, n_head=args.n_head,attn_type=args.attn_type, ffn_dropout=args.ffn_dropout, attn_dropout=args.attn_dropout, mlp_layers=args.mlp_layers, act=args.act,horiz_fourier_dim=args.hfourier_dim)
 
 
 
@@ -158,10 +167,12 @@ def get_model(args):
     elif args.model_name == 'MLP_s':
         return MLPNOScatter(input_size=trunk_size + theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers)
 
+    ### shared
     elif args.model_name == "FourierMLP":
         return FourierMLP(space_dim=args.space_dim, theta_dim= theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers, fourier_dim=args.hfourier_dim, sigma=args.sigma,type=args.type)
 
-
+    elif args.model_name == "PreFourierMLP":
+        return PreFourierMLP(space_dim=args.space_dim, theta_dim= theta_size,n_hidden=args.n_hidden, output_size=output_size, n_layers=args.n_layers, fourier_dim=args.hfourier_dim, sigma=args.sigma,type=args.type)
 
 
     else:
@@ -318,7 +329,7 @@ def collate_op(items):
     [X, Y, theta, (f1, f2, ...)], input functions could be None
 '''
 class MIODataset(DGLDataset):
-    def __init__(self, data_path, name=' ',train=True,test=False, train_num=None, test_num=None, use_cache=True, normalize_y=False, y_normalizer=None, x_normalizer=None, up_normalizer=None,normalize_x = False, sort_data=False):
+    def __init__(self, data_path, name=' ',train=True,test=False, train_num=None, test_num=None, use_cache=True, normalize_y=False, y_normalizer=None, x_normalizer=None, up_normalizer=None,normalize_x = False, sort_data=False, max_sample_nodes=None):
         self.data_path = data_path
         self.cached_path = self.data_path[:-4] + '_' + 'train' + '_cached' +self.data_path[-4:] if train else  self.data_path[:-4] + '_' + 'test' + '_cached' +self.data_path[-4:]
         self.use_cache = use_cache
@@ -328,6 +339,7 @@ class MIODataset(DGLDataset):
         self.x_normalizer = x_normalizer
         self.up_normalizer = up_normalizer
         self.sort_data = sort_data
+        self.max_sample_nodes = max_sample_nodes
         self.num_inputs = 0
 
         ####  debug timing
@@ -345,6 +357,7 @@ class MIODataset(DGLDataset):
                 if train_num == 'all':   # use all to train
                     self.train_num = len(data_all)
                 else:
+                    train_num = int(train_num)
                     self.train_num = min(train_num, len(data_all))
                     if train_num > len(data_all):
                         print('Warnings: there is no enough train data {} / {}'.format(train_num, len(data_all)))
@@ -354,6 +367,7 @@ class MIODataset(DGLDataset):
                 if test_num == "all":
                     self.test_num = len(data_all)
                 else:
+                    test_num = int(test_num)
                     self.test_num = min(test_num, len(data_all))
                     if test_num > len(data_all):
                         print('Warnings: there is no enough test data {} / {}'.format(test_num, len(data_all)))
@@ -480,9 +494,20 @@ class MIODataset(DGLDataset):
     def __len__(self):
         return self.data_len
 
-
+    # @timing
     def __getitem__(self, idx):
-        return self.graphs[idx], self.u_p[idx], self.inputs_f[idx]
+        g = self.graphs[idx]
+        ### only subsampled nodes at training modes, note that  dgl subgraph cannot be batched with graph
+        if self.train and (self.max_sample_nodes != -1):
+            if g.number_of_nodes() > self.max_sample_nodes:
+                n_ids = torch.randperm(g.number_of_nodes())[:self.max_sample_nodes]
+            else:
+                n_ids = torch.arange(g.number_of_nodes())
+            g_subsampled = dgl.node_subgraph(g, n_ids)
+            return g_subsampled, self.u_p[idx], self.inputs_f[idx]
+
+        else:
+            return g, self.u_p[idx], self.inputs_f[idx]
 
 
 
@@ -521,6 +546,7 @@ class MIOScatterDataset(DGLDataset):
                 if train_num == 'all':   # use all to train
                     self.train_num = len(data_all)
                 else:
+                    train_num = int(train_num)
                     self.train_num = min(train_num, len(data_all))
                     if train_num > len(data_all):
                         print('Warnings: there is no enough train data {} / {}'.format(train_num, len(data_all)))
@@ -530,6 +556,7 @@ class MIOScatterDataset(DGLDataset):
                 if test_num == "all":
                     self.test_num = len(data_all)
                 else:
+                    test_num = int(test_num)
                     self.test_num = min(test_num, len(data_all))
                     if test_num > len(data_all):
                         print('Warnings: there is no enough test data {} / {}'.format(test_num, len(data_all)))
@@ -796,13 +823,13 @@ class ScatterLpLoss(_WeightedLoss):
         if offsets is None:
             if self.component == 'all':
                 losses =  ((pred - target).abs() ** self.p)
-                loss = losses.mean() ** (1 / self.p)
+                loss = losses.mean() ** (1/self.p)    ##TODO: check whether loss need to **1/p
                 metrics = (losses.mean(dim=0) ** (1 /self.p)).clone().detach().cpu().numpy()
 
             else:
                 assert self.component <= target.shape[1]
                 losses = (pred - target[:, self.component: self.component + 1]).abs() ** self.p
-                loss = losses.mean() ** (1 / self.p)
+                loss = losses.mean() ** (1/self.p)
                 metrics = (losses.mean() ** (1 / self.p)).clone().detach().cpu().numpy()
         else:
             if self.component == 'all':

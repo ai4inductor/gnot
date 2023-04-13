@@ -29,14 +29,15 @@ import dgl
 from dgl.dataloading import GraphDataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 
+from accelerate import Accelerator
+
 from collections import OrderedDict
 from torch.optim.lr_scheduler import OneCycleLR, StepLR, LambdaLR
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
-from accelerate import Accelerator
 
 from gnot.args import get_args
-from gnot.data_utils import get_scatter_dataset,get_model, ScatterLpLoss, ScatterLpRelLoss, IdxDataset
+from gnot.data_utils import get_dataset, get_model, get_loss_func, collate_op, MIODataLoader
 from gnot.utils import get_seed, get_num_params, timing
 from gnot.models.optimizer import Adam, AdamW
 
@@ -44,22 +45,16 @@ EPOCH_SCHEDULERS = ['ReduceLROnPlateau', 'StepLR', 'MultiplicativeLR',
                     'MultiStepLR', 'ExponentialLR', 'LambdaLR']
 
 
-def train(args,
-          accelerator,
-          model,
+def train(args, accelerator, model,
           loss_func,
           metric_func,
-          train_dataset,
-          test_dataset,
-          train_idx_dataset,
-          test_idx_dataset,
           train_loader,
-          test_loader,
+          valid_loader,
           optimizer,
           lr_scheduler,
           epochs=10,
           writer=None,
-          device=torch.device("cuda:0"),
+          device="cuda",
           patience=10,
           grad_clip=0.999,
           start_epoch: int = 0,
@@ -76,7 +71,7 @@ def train(args,
 
     if patience is None or patience == 0:
         patience = epochs
-    result = []
+    result = None
     start_epoch = start_epoch
     end_epoch = start_epoch + epochs
     best_val_metric = np.inf
@@ -87,23 +82,10 @@ def train(args,
 
     for epoch in range(start_epoch, end_epoch):
         model.train()
-        train_idx_dataset.reset()   # reset dataset to ensure randomness
         torch.cuda.empty_cache()
-
-        train_idxs = torch.randperm(len(train_dataset)).split(args.scatter_batch_size)
-        # train_idxs = torch.arange(len(train_dataset)).to(device).split(args.scatter_batch_size)
-
-
-        time0 = time.time()
-        for i, idx in enumerate(train_loader):
-        # for idx in train_idxs:
-            idx = idx.squeeze().cpu()
-            # print('PID {} id {}:'.format(os.getpid(),i))
-            batch = (train_dataset.X_data[idx], train_dataset.theta[idx], train_dataset.Y_data[idx])
-
-            loss = train_batch(accelerator, model, loss_func, batch, optimizer, lr_scheduler, device, grad_clip=grad_clip)
-
-
+        for batch in train_loader:
+            loss = train_batch(accelerator, model, loss_func, batch, optimizer, lr_scheduler, device,
+                               grad_clip=grad_clip)
 
             loss = np.array(loss)
             loss_epoch.append(loss)
@@ -125,14 +107,14 @@ def train(args,
 
             if writer is not None:
                 for j in range(len(_loss_mean)):
-                    writer.add_scalar("train_loss_{}".format(j), _loss_mean[j], it)  #### loss 0 seems to be the sum of all loss
-        print('pid {} time {}'.format(os.getpid(),time.time()-time0))
+                    writer.add_scalar("train_loss_{}".format(j), _loss_mean[j],
+                                      it)  #### loss 0 seems to be the sum of all loss
+
         loss_train.append(_loss_mean)
         loss_epoch = []
 
-        val_result = validate_epoch(model, metric_func, test_dataset, args.scatter_batch_size * 4, device)
+        val_result = validate_epoch(model, metric_func, valid_loader, device)
 
-        result.append(val_result['data_vis'])
         loss_val.append(val_result["metric"])
         val_metric = val_result["metric"].sum()
 
@@ -186,31 +168,32 @@ def train(args,
         desc_ep += log
         print(desc_ep)
 
-        # result = dict(
-        #     best_val_epoch=best_val_epoch,
-        #     best_val_metric=best_val_metric,
-        #     loss_train=np.asarray(loss_train),
-        #     loss_val=np.asarray(loss_val),
-        #     lr_history=np.asarray(lr_history),
-        #     # best_model=best_model_state_dict,
-        #     optimizer_state=optimizer.state_dict()
-        # )
-        pickle.dump(result, open('./data/data_vis_test.pkl','wb'))
-
-
+        result = dict(
+            best_val_epoch=best_val_epoch,
+            best_val_metric=best_val_metric,
+            loss_train=np.asarray(loss_train),
+            loss_val=np.asarray(loss_val),
+            lr_history=np.asarray(lr_history),
+            # best_model=best_model_state_dict,
+            optimizer_state=optimizer.state_dict()
+        )
+        # pickle.dump(result, open(os.path.join(model_save_path, result_name),'wb'))
     return result
+
 
 # @timing
 def train_batch(accelerator, model, loss_func, data, optimizer, lr_scheduler, device, grad_clip=0.999):
     optimizer.zero_grad()
 
-    x, theta, y = data
+    g, u_p, g_u = data
 
-    x, theta, y = x.to(device), theta.to(device), y.to(device)
+    g, g_u, u_p = g.to(device), g_u.to(device), u_p.to(device)
 
-    out = model(x, theta)
-    # y, out = y.squeeze(), out.squeeze()
-    loss, reg, _ = loss_func(out, y)
+    out = model(g, u_p, g_u)
+
+    y_pred, y = out.squeeze(), g.ndata['y'].squeeze()
+    loss, reg, _ = loss_func(g, y_pred, y)
+    loss = loss + reg
 
     accelerator.backward(loss)
     # loss.backward()
@@ -220,50 +203,29 @@ def train_batch(accelerator, model, loss_func, data, optimizer, lr_scheduler, de
     if lr_scheduler:
         lr_scheduler.step()
 
-    return loss.item(), reg.item()
+    return (loss.item(), reg.item())
+
 
 # @timing
-def validate_epoch(model, metric_func, valid_dataset, batchsize, device):
+def validate_epoch(model, metric_func, valid_loader, device):
     model.eval()
-    y_data, y_pred = [],  []
     metric_val = []
+    for _, data in enumerate(valid_loader):
+        with torch.no_grad():
+            g, u_p, g_u = data
+            g, g_u, u_p = g.to(device), g_u.to(device), u_p.to(device)
 
-    data_vis = None
-    with torch.no_grad():
-        # test_idxs = torch.arange(len(valid_dataset)).split(batchsize)
-        # for idx in test_idxs:
+            out = model(g, u_p, g_u)
 
-        for id in range(len(valid_dataset.data_indexes) - 1):
-            idx = torch.arange(valid_dataset.data_indexes[id], valid_dataset.data_indexes[id + 1])
-
-            x, theta, y = test_dataset.X_data[idx].to(device), test_dataset.theta[idx].to(device), test_dataset.Y_data[idx].to(device)
-
-            out = model(x, theta)
-
-            # y_data.append(y), y_pred.append(out)
-            _, _, metric = metric_func(out, y, offsets=None)
+            y_pred, y = out.squeeze(), g.ndata['y'].squeeze()
+            _, _, metric = metric_func(g, y_pred, y)
 
             metric_val.append(metric)
-
-            #### save data
-            if id == 10:
-                data_vis = [x.squeeze().cpu().numpy(), out.squeeze().cpu().numpy(), y.squeeze().cpu().numpy()]
-
-
-
-        ### test case by case
-        # y_data, y_pred = torch.cat(y_data, dim=0), torch.cat(y_pred, dim=0)
-        # offsets =  valid_dataset.len_inputs.to(y_data.device)
-        ### GPU
-        # _, _, metric_val = loss_func(y_pred, y_data, offsets)
-    # return dict(metric=metric_val)
-
-    return dict(metric=np.mean(metric_val, axis=0), data_vis=data_vis)
+    return dict(metric=np.mean(metric_val, axis=0))
 
 
 if __name__ == "__main__":
     args = get_args()
-
 
     accelerator = Accelerator(split_batches=False)
 
@@ -278,15 +240,17 @@ if __name__ == "__main__":
     kwargs = {'pin_memory': False} if args.gpu else {}
     get_seed(args.seed, printout=False)
 
+    train_dataset, test_dataset = get_dataset(args)
+    # test_dataset = get_dataset(args)
 
-    train_dataset, test_dataset = get_scatter_dataset(args)
-    #### DO not use dataloader for long tensordataset
-    train_idx_dataset= IdxDataset(len(train_dataset.X_data), batch_size=args.scatter_batch_size, drop_last=False,shuffle=True)
-    test_idx_dataset = IdxDataset(len(test_dataset.X_data), batch_size=args.scatter_batch_size * 5, drop_last=False, shuffle=False)
-    train_loader = torch.utils.data.DataLoader(train_idx_dataset,batch_size=1 , shuffle=False, drop_last=False)
-    test_loader = torch.utils.data.DataLoader(test_idx_dataset, batch_size=1, shuffle=False, drop_last=False)
-
-
+    # train_sampler = SubsetRandomSampler(torch.arange(len(train_dataset)))
+    # test_sampler = SubsetRandomSampler(torch.arange(len(test_dataset)))
+    # train_loader = GraphDataLoader(train_dataset, sampler=train_sampler, batch_size=args.batch_size, collate_fn=collate_op, drop_last=False)
+    # test_loader = GraphDataLoader(test_dataset, sampler=test_sampler, batch_size=args.val_batch_size, collate_fn=collate_op,drop_last=False)
+    train_loader = MIODataLoader(train_dataset, batch_size=args.batch_size, collate_fn=collate_op, shuffle=True,
+                                 drop_last=False)
+    test_loader = MIODataLoader(test_dataset, batch_size=args.batch_size, collate_fn=collate_op, shuffle=True,
+                                drop_last=False)
 
     args.space_dim = int(re.search(r'\d', args.dataset).group())
     args.normalizer = train_dataset.y_normalizer.to(device) if train_dataset.y_normalizer is not None else None
@@ -295,14 +259,8 @@ if __name__ == "__main__":
     get_seed(args.seed)
     torch.cuda.empty_cache()
 
-    if args.loss_name in ['rel1' , 'l1']:
-        loss_func = ScatterLpLoss(p=1, component=args.component, normalizer=args.normalizer)
-        metric_func = ScatterLpRelLoss(p=1, component=args.component, normalizer=args.normalizer)
-    elif args.loss_name in ["rel2" , 'l2']:
-        loss_func = ScatterLpLoss(p=2, component=args.component, normalizer=args.normalizer)
-        metric_func = ScatterLpRelLoss(p=2, component=args.component, normalizer=args.normalizer)
-    else:
-        raise NotImplementedError
+    loss_func = get_loss_func(name=args.loss_name, args=args, regularizer=True, normalizer=args.normalizer)
+    metric_func = get_loss_func(name='rel2', args=args, regularizer=False, normalizer=args.normalizer)
 
     model = get_model(args)
     model = model.to(device)
@@ -326,20 +284,26 @@ if __name__ == "__main__":
         log_path = None
 
     print(model)
-    print(args)
+    # print(config)
 
     epochs = args.epochs
     lr = args.lr
 
     if args.optimizer == 'Adam':
-        optimizer = Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay,betas=(args.beta1, args.beta2))
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay,
+                                     betas=(args.beta1, args.beta2))
     elif args.optimizer == "AdamW":
         # if hasattr(model, 'configure_optimizers'):
         # print('Using model specified configured optimizer')
         # optimizer = model.configure_optimizers(lr=lr, weight_decay=args.weight_decay,betas=(0.9,0.999))
         # else:
         # optimizer = AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay)
-        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay, betas=(args.beta1, args.beta2))
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay,
+                                      betas=(args.beta1, args.beta2))
+    elif args.optimizer == 'CAdam':
+        optimizer = Adam(model.parameters(), lr=lr, weight_decay=args.weight_decay, betas=(args.beta1, args.beta2))
+    elif args.optimizer == "CAdamW":
+        optimizer = AdamW(model.parameters(), lr=lr, weight_decay=args.weight_decay, betas=(args.beta1, args.beta2))
     else:
         raise NotImplementedError
 
@@ -358,11 +322,12 @@ if __name__ == "__main__":
                                                               0.5)))
     else:
         raise NotImplementedError
+
     time_start = time.time()
 
     model, optimizer, scheduler, train_loader = accelerator.prepare(model, optimizer, scheduler, train_loader)
 
-    result = train(args, accelerator, model, loss_func, metric_func, train_dataset, test_dataset,train_idx_dataset, test_idx_dataset,
+    result = train(args, accelerator, model, loss_func, metric_func,
                    train_loader, test_loader,
                    optimizer, scheduler,
                    epochs=epochs,
@@ -382,7 +347,7 @@ if __name__ == "__main__":
     # pickle.dump(checkpoint, open(os.path.join('./../models/checkpoints/{}'.format(model_path), result_path),'wb'))
     # model.load_state_dict(torch.load(os.path.join('./../models/checkpoints/', model_path)))
     model.eval()
-    val_metric = validate_epoch(model, metric_func, test_dataset, 0, device)
+    val_metric = validate_epoch(model, metric_func, test_loader, device)
     print(f"\nBest model's validation metric in this run: {val_metric}")
 
 

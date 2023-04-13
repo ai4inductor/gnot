@@ -127,6 +127,77 @@ class FourierMLP(nn.Module):
         return x
 
 
+class PreFourierMLP(nn.Module):
+    def __init__(self, space_dim=2, theta_dim=1, output_size=3, n_layers=2, n_hidden=64, act='gelu',fourier_dim=0,type='gaussian', sigma=1):
+        super(PreFourierMLP, self).__init__()
+        self.space_dim = space_dim
+        self.theta_dim = theta_dim
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.act = act
+        self.sigma = sigma
+        self.fourier_dim = fourier_dim
+        self.type = type
+
+        self.rotation_ffn = nn.Sequential(nn.Linear(theta_dim, 128),nn.GELU(),nn.Linear(128,128),nn.GELU(),nn.Linear(128, space_dim**2))
+        self.translate_ffn = nn.Sequential(nn.Linear(theta_dim, 128),nn.GELU(),nn.Linear(128,128),nn.GELU(),nn.Linear(128, space_dim))
+
+        if fourier_dim > 0:
+            if self.type == 'gaussian':
+                self.B = nn.Parameter(sigma *torch.randn([space_dim, fourier_dim]),requires_grad=False)
+                freq_dim = fourier_dim
+            elif self.type == 'exp':
+                freqs = torch.logspace(np.log10(1/2048),np.log10(2048),fourier_dim//space_dim)
+                # freqs = 2**torch.arange(-5,5)
+                self.B = nn.Parameter(freqs,requires_grad=False)
+                freq_dim = len(freqs)*space_dim
+            self.theta_mlp = MLP(theta_dim, fourier_dim, fourier_dim, n_layers=3, act=act)
+            self.mlp = MLP(2*freq_dim + fourier_dim, n_hidden, output_size, n_layers=n_layers,act=act)
+        else:
+            self.mlp = MLP(space_dim + theta_dim, n_hidden, output_size, n_layers=n_layers,act=act)
+
+        self.__name__ = 'PreFourierMLP'
+
+
+    def forward(self, *args):
+        if len(args) == 1:
+            x = args[0]
+            theta = torch.zeros([x.shape[0],1]).to(x.device)   # an ineffective operation
+        elif len(args) == 2:
+            x, theta = args
+
+        elif len(args) == 3:
+            g, u_p, g_u = args
+            x = g.ndata['x']
+            theta = dgl.broadcast_nodes(g, u_p)
+
+        else:
+            raise ValueError
+
+        ## process pre-rotation and translation
+
+        Q = self.rotation_ffn(theta).reshape(-1, self.space_dim, self.space_dim)
+        b = self.translate_ffn(theta).reshape(-1, self.space_dim)
+        # Q, _ = torch.linalg.qr(Q)
+        x = (Q @ x.unsqueeze(-1)).squeeze() + b
+        # x = x + b
+
+
+        if self.fourier_dim > 0:
+            theta_feats = self.theta_mlp(theta)
+            if self.type == 'gaussian':
+                x = torch.cat([torch.sin(2*np.pi*x @ self.B), torch.cos(2*np.pi * x @ self.B), theta_feats],dim=1)
+            elif self.type == 'exp':
+                x = torch.einsum('ij,k->ijk', x, self.B).reshape(x.shape[0], -1)
+                x = torch.cat([torch.sin(2*np.pi*x ), torch.cos(2*np.pi * x), theta_feats],dim=1)
+
+        else:
+            x = torch.cat([x, theta],dim=1)
+
+        x = self.mlp(x)
+
+        return x
 
 
 

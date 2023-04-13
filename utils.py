@@ -101,7 +101,13 @@ class MultipleTensors():
         return self.x[item]
 
 
-
+def clear_dict_keys(state_dict):
+    new_state_dict = {}
+    for key, value in state_dict.items():
+        if key.startswith('module.'):
+            new_key = key.replace('module.', '')  # 删除 "module." 前缀
+            new_state_dict[new_key] = value
+    return new_state_dict
 
 
 

@@ -257,12 +257,18 @@ class CGPTNO(nn.Module):
         self.branch_sizes = branch_sizes
 
         self.output_size = output_size
-        self.gpt_config = GPTConfig(attn_type=attn_type,embd_pdrop=ffn_dropout, resid_pdrop=ffn_dropout, attn_pdrop=attn_dropout,n_embd=n_hidden, n_head=n_head, n_layer=n_layers,
-                                       block_size=128,act=act, branch_sizes=branch_sizes,n_inputs=len(branch_sizes),n_inner=n_inner)
-        self.n_inputs = len(branch_sizes)
-        self.trunk_mlp = MLP(self.trunk_size, n_hidden, n_hidden, n_layers=mlp_layers,act=act)
-        self.branch_mlps = nn.ModuleList([MLP(bsize, n_hidden, n_hidden, n_layers=mlp_layers,act=act) for bsize in self.branch_sizes])
 
+        self.trunk_mlp = MLP(self.trunk_size, n_hidden, n_hidden, n_layers=mlp_layers,act=act)
+        if branch_sizes:
+            self.n_inputs = len(branch_sizes)
+            self.branch_mlps = nn.ModuleList([MLP(bsize, n_hidden, n_hidden, n_layers=mlp_layers, act=act) for bsize in self.branch_sizes])
+        else:
+            self.n_inputs = 0
+
+        self.gpt_config = GPTConfig(attn_type=attn_type, embd_pdrop=ffn_dropout, resid_pdrop=ffn_dropout,
+                                    attn_pdrop=attn_dropout, n_embd=n_hidden, n_head=n_head, n_layer=n_layers,
+                                    block_size=128, act=act, branch_sizes=branch_sizes, n_inputs=self.n_inputs,
+                                    n_inner=n_inner)
 
         self.blocks = nn.Sequential(*[CrossAttentionBlock(self.gpt_config) for _ in range(self.gpt_config.n_layer)])
 
@@ -341,28 +347,16 @@ class CGPTNO(nn.Module):
             x = horizontal_fourier_embedding(x, self.horiz_fourier_dim)
             # z = horizontal_fourier_embedding(z, self.horiz_fourier_dim)
         x = self.trunk_mlp(x)
-        z = MultipleTensors([self.branch_mlps[i](inputs[i]) for i in range(self.n_inputs)])
+        if self.n_inputs:
+            z = MultipleTensors([self.branch_mlps[i](inputs[i]) for i in range(self.n_inputs)])
+        else:
+            z = MultipleTensors([x])
         for block in self.blocks:
             x = block(x, z)
         x = self.out_mlp(x)
         x_out = torch.cat([x[i, :num] for i, num in enumerate(g.batch_num_nodes())],dim=0)
 
-        # use segment graph
-        # gs = dgl.unbatch(g)
-        # offsets = torch.LongTensor([_g.num_nodes() for _g in gs])
-        # # u_p_rpt = torch.cat([torch.tile(u_p[i:i+1,:],[offsets[i],1]) for i in range(offsets.shape[0])])
-        #
-        # x = torch.cat([torch.cat([_g.ndata['x'], torch.tile(u_p[i:i+1,:],[offsets[i],1])],dim=-1) for i, _g in enumerate(gs)], dim=0)
-        #
-        # if self.horiz_fourier_dim > 0:
-        #     x = horizontal_fourier_embedding(x, self.horiz_fourier_dim)
-        #     # z = horizontal_fourier_embedding(z, self.horiz_fourier_dim)
-        # x = self.trunk_mlp(x)
-        # z = MultipleTensors([self.branch_mlps[i](inputs[i]) for i in range(self.n_inputs)])
-        # for block in self.blocks:
-        #     x = block(x, z)
-        # x = self.out_mlp(x)
-        # x_out = torch.cat([x[i, :num] for i, num in enumerate(g.batch_num_nodes())], dim=0)
+
 
 
         return x_out
